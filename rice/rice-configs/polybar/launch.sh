@@ -2,6 +2,9 @@
 
 set -u
 
+# Add cyberbar scripts to PATH
+export PATH="$HOME/Projects/thinkpad-cyberpunk/utils/bin:$PATH"
+
 # Terminate already running bar instances
 # Using -q to suppress error messages if polybar isn't running
 killall -q polybar || true
