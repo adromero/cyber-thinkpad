@@ -1,0 +1,368 @@
+#!/usr/bin/env python3
+"""
+cyberdash - ThinkPad Cyberpunk Dashboard
+Real-time system monitoring with cyberpunk aesthetics
+"""
+
+import sys
+import time
+import argparse
+from pathlib import Path
+from datetime import datetime
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
+
+from sysmon import ThinkPadMonitor
+from colors import Colors
+
+# Widget layout constants
+WIDGET_WIDTH = 40
+WIDGET_HEIGHT = 12
+WIDGET_COL1 = 1
+WIDGET_COL2 = 42
+WIDGET_ROW1 = 8
+WIDGET_ROW2_OFFSET = 13  # 21 with default spacing
+FOOTER_OFFSET = 26  # 34 with default spacing
+
+# Temperature thresholds (Celsius)
+TEMP_CRITICAL = 80
+TEMP_HIGH = 70
+TEMP_MEDIUM = 60
+
+# Battery health thresholds (percentage)
+BATTERY_HEALTH_GOOD = 80
+BATTERY_HEALTH_FAIR = 60
+
+# Progress bar thresholds (percentage)
+BAR_CRITICAL = 90
+BAR_HIGH = 75
+BAR_MEDIUM = 50
+
+# Load average thresholds
+LOAD_MEDIUM = 2
+LOAD_HIGH = 4
+
+# Memory usage thresholds (percentage)
+MEM_MEDIUM = 70
+MEM_HIGH = 85
+
+
+def clear_screen():
+    """Clear the terminal screen"""
+    print("\033[2J\033[H", end="")
+
+
+def move_cursor(row: int, col: int):
+    """Move cursor to position"""
+    print(f"\033[{row};{col}H", end="")
+
+
+def draw_box(x: int, y: int, width: int = WIDGET_WIDTH, height: int = WIDGET_HEIGHT,
+             color: str = Colors.CYAN, title: str = ""):
+    """Draw a cyberpunk-styled box"""
+    move_cursor(y, x)
+    print(f"{color}╔{'═' * (width - 2)}╗{Colors.RESET}")
+
+    for i in range(height - 2):
+        move_cursor(y + i + 1, x)
+        print(f"{color}║{' ' * (width - 2)}║{Colors.RESET}")
+
+    move_cursor(y + height - 1, x)
+    print(f"{color}╚{'═' * (width - 2)}╝{Colors.RESET}")
+
+    if title:
+        move_cursor(y, x + 2)
+        print(f"{color}[ {Colors.BOLD}{title}{Colors.RESET}{color} ]{Colors.RESET}")
+
+
+def draw_text(x: int, y: int, text: str):
+    """Draw text at position"""
+    move_cursor(y, x)
+    print(text, end="")
+
+
+def draw_bar(percentage: int, width: int = 20, char: str = "█") -> str:
+    """Create a progress bar"""
+    filled = int(percentage / 100 * width)
+    empty = width - filled
+
+    if percentage >= BAR_CRITICAL:
+        color = Colors.RED
+    elif percentage >= BAR_HIGH:
+        color = Colors.ORANGE
+    elif percentage >= BAR_MEDIUM:
+        color = Colors.YELLOW
+    else:
+        color = Colors.CYAN
+
+    return f"{color}{char * filled}{Colors.DIM}{'░' * empty}{Colors.RESET}"
+
+
+def draw_battery_widget(monitor: ThinkPadMonitor, x: int, y: int):
+    """Draw battery status widget"""
+    batteries = monitor.get_batteries()
+    ac_online = monitor.get_ac_online()
+
+    draw_box(x, y, 40, 12, Colors.CYAN, "⚡ BATTERY")
+
+    if not batteries:
+        draw_text(x + 2, y + 2, f"{Colors.RED}NO BATTERIES DETECTED{Colors.RESET}")
+        return
+
+    row = y + 2
+    for bat in batteries:
+        # Battery name and status
+        status_icon = {
+            "Charging": f"{Colors.GREEN}▲",
+            "Discharging": f"{Colors.YELLOW}▼",
+            "Full": f"{Colors.CYAN}●",
+            "Not charging": f"{Colors.BLUE}■",
+        }.get(bat.status, "?")
+
+        draw_text(x + 2, row, f"{Colors.PURPLE}{bat.name}{Colors.RESET} {status_icon} {bat.status}{Colors.RESET}")
+        row += 1
+
+        # Charge bar
+        bar = draw_bar(bat.capacity, width=30)
+        draw_text(x + 2, row, f"{bar} {bat.capacity:3d}%")
+        row += 1
+
+        # Health
+        health_color = Colors.GREEN if bat.health >= BATTERY_HEALTH_GOOD else Colors.YELLOW if bat.health >= BATTERY_HEALTH_FAIR else Colors.RED
+        draw_text(x + 2, row, f"{Colors.DIM}Health:{Colors.RESET} {health_color}{bat.health}%{Colors.RESET}")
+        row += 1
+
+        # Time remaining
+        if bat.time_remaining:
+            hours = bat.time_remaining // 60
+            mins = bat.time_remaining % 60
+            time_label = "to full" if bat.status == "Charging" else "remaining"
+            draw_text(x + 2, row, f"{Colors.DIM}{hours:02d}:{mins:02d} {time_label}{Colors.RESET}")
+        row += 1
+
+    # AC status
+    ac_color = Colors.GREEN if ac_online else Colors.DIM
+    ac_text = "CONNECTED" if ac_online else "UNPLUGGED"
+    draw_text(x + 2, y + 10, f"{Colors.PURPLE}AC:{Colors.RESET} {ac_color}{ac_text}{Colors.RESET}")
+
+
+def draw_thermal_widget(monitor: ThinkPadMonitor, x: int, y: int):
+    """Draw thermal monitoring widget"""
+    zones = monitor.get_thermal_zones()
+
+    draw_box(x, y, 40, 12, Colors.ORANGE, "🔥 THERMAL")
+
+    row = y + 2
+    for zone in zones[:5]:  # Limit to 5 zones
+        if zone.temp == 0:
+            continue
+
+        # Temperature color
+        if zone.temp >= TEMP_CRITICAL:
+            color = Colors.RED
+        elif zone.temp >= TEMP_HIGH:
+            color = Colors.ORANGE
+        elif zone.temp >= TEMP_MEDIUM:
+            color = Colors.YELLOW
+        else:
+            color = Colors.CYAN
+
+        zone_label = zone.type[:12] if zone.type != "unknown" else zone.name
+        temp_bar = draw_bar(min(zone.temp, 100), width=20)
+
+        draw_text(x + 2, row, f"{Colors.PURPLE}{zone_label:12s}{Colors.RESET} {temp_bar} {color}{zone.temp:3d}°C{Colors.RESET}")
+        row += 1
+
+    # Cooling devices (fans)
+    devices = monitor.get_cooling_devices()
+    active_fans = [d for d in devices if d.max_state > 0 and d.type != "Processor"]
+
+    if active_fans and row < y + 10:
+        row += 1
+        draw_text(x + 2, row, f"{Colors.DIM}Cooling:{Colors.RESET}")
+        row += 1
+
+        for fan in active_fans[:2]:
+            percentage = (fan.cur_state / fan.max_state * 100) if fan.max_state > 0 else 0
+            fan_bar = draw_bar(percentage, width=20)
+            draw_text(x + 2, row, f"{Colors.DIM}{fan.type[:12]:12s}{Colors.RESET} {fan_bar}")
+            row += 1
+
+
+def draw_power_widget(monitor: ThinkPadMonitor, x: int, y: int):
+    """Draw power profile widget"""
+    draw_box(x, y, 40, 12, Colors.MAGENTA, "⚡ POWER")
+
+    row = y + 2
+
+    # Power profile
+    profile = monitor.get_power_profile()
+    if profile:
+        profile_icon = {
+            "performance": f"{Colors.RED}⚡",
+            "balanced": f"{Colors.YELLOW}◆",
+            "power-save": f"{Colors.GREEN}❖",
+        }.get(profile, "●")
+
+        profile_color = {
+            "performance": Colors.RED,
+            "balanced": Colors.YELLOW,
+            "power-save": Colors.GREEN,
+        }.get(profile, Colors.CYAN)
+
+        draw_text(x + 2, row, f"{Colors.PURPLE}Profile:{Colors.RESET} {profile_icon} {profile_color}{profile}{Colors.RESET}")
+        row += 2
+
+    # CPU Governor
+    governor = monitor.get_cpu_governor()
+    if governor:
+        gov_color = {
+            "performance": Colors.RED,
+            "powersave": Colors.GREEN,
+            "schedutil": Colors.CYAN,
+        }.get(governor, Colors.PURPLE)
+
+        draw_text(x + 2, row, f"{Colors.PURPLE}Governor:{Colors.RESET} {gov_color}{governor}{Colors.RESET}")
+        row += 2
+
+    # CPU Frequency
+    freqs = monitor.get_cpu_freq()
+    if freqs:
+        avg_freq = sum(f[0] for f in freqs.values()) / len(freqs)
+        max_freq = max(f[2] for f in freqs.values())
+        percentage = (avg_freq / max_freq * 100) if max_freq > 0 else 0
+
+        freq_bar = draw_bar(percentage, width=25)
+        draw_text(x + 2, row, f"{Colors.PURPLE}CPU Freq:{Colors.RESET}")
+        row += 1
+        draw_text(x + 2, row, f"{freq_bar} {Colors.CYAN}{avg_freq:.0f}{Colors.RESET}{Colors.DIM}MHz{Colors.RESET}")
+        row += 2
+
+    # Load average
+    load = monitor.get_load_average()
+    load_color = Colors.GREEN if load[0] < LOAD_MEDIUM else Colors.YELLOW if load[0] < LOAD_HIGH else Colors.RED
+    draw_text(x + 2, row, f"{Colors.PURPLE}Load:{Colors.RESET} {load_color}{load[0]:.2f}{Colors.RESET} "
+              f"{Colors.DIM}{load[1]:.2f} {load[2]:.2f}{Colors.RESET}")
+
+
+def draw_system_widget(monitor: ThinkPadMonitor, x: int, y: int):
+    """Draw system information widget"""
+    draw_box(x, y, 40, 12, Colors.PURPLE, "💻 SYSTEM")
+
+    row = y + 2
+
+    # Memory
+    mem = monitor.get_memory_info()
+    if mem:
+        used = mem.get("MemTotal", 0) - mem.get("MemAvailable", 0)
+        total = mem.get("MemTotal", 0)
+        if total > 0:
+            mem_percentage = (used / total * 100)
+            mem_bar = draw_bar(mem_percentage, width=25)
+
+            draw_text(x + 2, row, f"{Colors.PURPLE}Memory:{Colors.RESET}")
+            row += 1
+            draw_text(x + 2, row, f"{mem_bar}")
+            row += 1
+            draw_text(x + 2, row, f"{Colors.CYAN}{used:,}{Colors.RESET} / {total:,} MB {Colors.DIM}({mem_percentage:.0f}%){Colors.RESET}")
+            row += 2
+
+    # Uptime
+    try:
+        with open("/proc/uptime") as f:
+            uptime_data = f.read().split()
+            if len(uptime_data) < 1:
+                raise ValueError("Uptime data malformed")
+            uptime_seconds = int(float(uptime_data[0]))
+            days = uptime_seconds // 86400
+            hours = (uptime_seconds % 86400) // 3600
+            minutes = (uptime_seconds % 3600) // 60
+
+            draw_text(x + 2, row, f"{Colors.PURPLE}Uptime:{Colors.RESET} {Colors.CYAN}{days}d {hours:02d}:{minutes:02d}{Colors.RESET}")
+            row += 2
+    except FileNotFoundError:
+        # /proc/uptime not available (non-Linux system)
+        draw_text(x + 2, row, f"{Colors.DIM}Uptime: N/A{Colors.RESET}")
+        row += 2
+    except (IOError, ValueError) as e:
+        # Uptime data malformed or unreadable
+        draw_text(x + 2, row, f"{Colors.DIM}Uptime: Error{Colors.RESET}")
+        row += 2
+
+    # Hostname
+    try:
+        import socket
+        hostname = socket.gethostname()
+        draw_text(x + 2, row, f"{Colors.PURPLE}Host:{Colors.RESET} {Colors.CYAN}{hostname}{Colors.RESET}")
+    except OSError:
+        # Hostname not available (network issue or system limitation)
+        draw_text(x + 2, row, f"{Colors.DIM}Host: N/A{Colors.RESET}")
+
+
+def draw_header(monitor: ThinkPadMonitor, width: int):
+    """Draw cyberpunk header"""
+    now = datetime.now()
+
+    # ASCII art title
+    title = f"{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════════════════════╗{Colors.RESET}"
+    subtitle = f"{Colors.BOLD}{Colors.CYAN}║  {Colors.MAGENTA}█▀▀ █▄█ █▄▄ █▀▀ █▀█ █▀█ █ █ █▄ █ █▄▀  {Colors.CYAN}║{Colors.RESET}"
+    subtitle2 = f"{Colors.BOLD}{Colors.CYAN}║  {Colors.MAGENTA}█▄▄  █  █▄█ ██▄ █▀▄ █▀▀ █▄█ █ ▀█ █ █  {Colors.CYAN}║{Colors.RESET}"
+    footer = f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════════════════════╝{Colors.RESET}"
+
+    print(title)
+    print(subtitle)
+    print(subtitle2)
+    print(footer)
+
+    # Date/time
+    print(f"{Colors.PURPLE}[{Colors.CYAN}{now.strftime('%Y-%m-%d %H:%M:%S')}{Colors.PURPLE}]{Colors.RESET} "
+          f"{Colors.DIM}ThinkPad System Monitor{Colors.RESET}")
+    print()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="ThinkPad Cyberpunk Dashboard")
+    parser.add_argument("-i", "--interval", type=float, default=2.0,
+                       help="Update interval in seconds (default: 2.0)")
+    parser.add_argument("--compact", action="store_true",
+                       help="Compact mode (less spacing)")
+
+    args = parser.parse_args()
+
+    monitor = ThinkPadMonitor()
+
+    try:
+        while True:
+            clear_screen()
+
+            # Header
+            draw_header(monitor, 80)
+
+            # Layout - 2x2 grid of widgets
+            if args.compact:
+                spacing = 0
+            else:
+                spacing = 2
+
+            # Row 1
+            draw_battery_widget(monitor, WIDGET_COL1, WIDGET_ROW1)
+            draw_thermal_widget(monitor, WIDGET_COL2, WIDGET_ROW1)
+
+            # Row 2
+            draw_power_widget(monitor, WIDGET_COL1, WIDGET_ROW2_OFFSET + spacing)
+            draw_system_widget(monitor, WIDGET_COL2, WIDGET_ROW2_OFFSET + spacing)
+
+            # Footer
+            move_cursor(FOOTER_OFFSET + spacing * 2, 1)
+            print(f"{Colors.DIM}Press Ctrl+C to exit | Refreshing every {args.interval}s{Colors.RESET}")
+
+            time.sleep(args.interval)
+
+    except KeyboardInterrupt:
+        clear_screen()
+        print(f"{Colors.CYAN}Dashboard closed. Stay cyber.{Colors.RESET}\n")
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

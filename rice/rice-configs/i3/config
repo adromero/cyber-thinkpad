@@ -1,0 +1,243 @@
+# ╔═══════════════════════════════════════════════════════════╗
+# ║  i3 CYBERPUNK CONFIG - THINKPAD EDITION                   ║
+# ╚═══════════════════════════════════════════════════════════╝
+
+set $mod Mod4
+
+# Cyberpunk color scheme
+set $bg       #1a1a2e
+set $bg-alt   #16213e
+set $fg       #00ffff
+set $primary  #ff00ff
+set $secondary #9d7cd8
+set $alert    #ff0000
+set $cyan     #00ffff
+set $magenta  #ff00ff
+set $purple   #9d7cd8
+
+# Font
+font pango:JetBrainsMono Nerd Font 10
+
+# Use Mouse+$mod to drag floating windows
+floating_modifier $mod
+
+# Start a terminal
+bindsym $mod+Return exec kitty
+
+# Kill focused window
+bindsym $mod+Shift+q kill
+
+# Start rofi (program launcher)
+bindsym $mod+d exec "rofi -show drun -theme ~/.config/rofi/cyberpunk.rasi"
+bindsym $mod+Shift+d exec "rofi -show run -theme ~/.config/rofi/cyberpunk.rasi"
+
+# Change focus
+bindsym $mod+h focus left
+bindsym $mod+j focus down
+bindsym $mod+k focus up
+bindsym $mod+l focus right
+
+# Alternatively, you can use cursor keys
+bindsym $mod+Left focus left
+bindsym $mod+Down focus down
+bindsym $mod+Up focus up
+bindsym $mod+Right focus right
+
+# Move focused window
+bindsym $mod+Shift+h move left
+bindsym $mod+Shift+j move down
+bindsym $mod+Shift+k move up
+bindsym $mod+Shift+l move right
+
+bindsym $mod+Shift+Left move left
+bindsym $mod+Shift+Down move down
+bindsym $mod+Shift+Up move up
+bindsym $mod+Shift+Right move right
+
+# Split orientation
+bindsym $mod+b split h
+bindsym $mod+v split v
+
+# Enter fullscreen
+bindsym $mod+f fullscreen toggle
+
+# Change container layout
+bindsym $mod+s layout stacking
+bindsym $mod+w layout tabbed
+bindsym $mod+e layout toggle split
+
+# Toggle tiling / floating
+bindsym $mod+Shift+space floating toggle
+
+# Change focus between tiling / floating
+bindsym $mod+space focus mode_toggle
+
+# Focus parent container
+bindsym $mod+a focus parent
+
+# Workspaces
+set $ws1 "1:  TERM"
+set $ws2 "2:  CODE"
+set $ws3 "3:  WEB"
+set $ws4 "4:  FILES"
+set $ws5 "5:  MEDIA"
+set $ws6 "6:  COMM"
+set $ws7 "7:  MISC"
+set $ws8 "8:  GAME"
+set $ws9 "9:  MONITOR"
+set $ws10 "10:  SYS"
+
+# Switch to workspace
+bindsym $mod+1 workspace $ws1
+bindsym $mod+2 workspace $ws2
+bindsym $mod+3 workspace $ws3
+bindsym $mod+4 workspace $ws4
+bindsym $mod+5 workspace $ws5
+bindsym $mod+6 workspace $ws6
+bindsym $mod+7 workspace $ws7
+bindsym $mod+8 workspace $ws8
+bindsym $mod+9 workspace $ws9
+bindsym $mod+0 workspace $ws10
+
+# Move focused container to workspace
+bindsym $mod+Shift+1 move container to workspace $ws1
+bindsym $mod+Shift+2 move container to workspace $ws2
+bindsym $mod+Shift+3 move container to workspace $ws3
+bindsym $mod+Shift+4 move container to workspace $ws4
+bindsym $mod+Shift+5 move container to workspace $ws5
+bindsym $mod+Shift+6 move container to workspace $ws6
+bindsym $mod+Shift+7 move container to workspace $ws7
+bindsym $mod+Shift+8 move container to workspace $ws8
+bindsym $mod+Shift+9 move container to workspace $ws9
+bindsym $mod+Shift+0 move container to workspace $ws10
+
+# Reload/restart i3
+bindsym $mod+Shift+c reload
+bindsym $mod+Shift+r restart
+
+# Exit i3
+bindsym $mod+Shift+e exec "i3-nagbar -t warning -m 'Exit i3?' -B 'Yes' 'i3-msg exit'"
+
+# Resize mode
+mode "resize" {
+    bindsym h resize shrink width 10 px or 10 ppt
+    bindsym j resize grow height 10 px or 10 ppt
+    bindsym k resize shrink height 10 px or 10 ppt
+    bindsym l resize grow width 10 px or 10 ppt
+
+    bindsym Left resize shrink width 10 px or 10 ppt
+    bindsym Down resize grow height 10 px or 10 ppt
+    bindsym Up resize shrink height 10 px or 10 ppt
+    bindsym Right resize grow width 10 px or 10 ppt
+
+    bindsym Return mode "default"
+    bindsym Escape mode "default"
+    bindsym $mod+r mode "default"
+}
+bindsym $mod+r mode "resize"
+
+# ═══════════════════════════════════════════════════════════
+# CYBERPUNK THEMING
+# ═══════════════════════════════════════════════════════════
+
+# Window colors
+#                       border    background text      indicator
+client.focused          $magenta  $magenta   $bg       $cyan
+client.focused_inactive $bg-alt   $bg-alt    $fg       $bg-alt
+client.unfocused        $bg       $bg        $purple   $bg
+client.urgent           $alert    $alert     $bg       $alert
+client.placeholder      $bg       $bg        $fg       $bg
+
+# Gaps
+gaps inner 10
+gaps outer 5
+
+# Remove window title bars
+default_border pixel 2
+default_floating_border pixel 2
+
+# ═══════════════════════════════════════════════════════════
+# THINKPAD SPECIFIC BINDINGS
+# ═══════════════════════════════════════════════════════════
+
+# ThinkPad function keys
+bindsym XF86AudioRaiseVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ +5%
+bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -5%
+bindsym XF86AudioMute exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle
+bindsym XF86AudioMicMute exec --no-startup-id pactl set-source-mute @DEFAULT_SOURCE@ toggle
+
+bindsym XF86MonBrightnessUp exec --no-startup-id brightnessctl set +5%
+bindsym XF86MonBrightnessDown exec --no-startup-id brightnessctl set 5%-
+
+# Lock screen
+bindsym $mod+Escape exec i3lock -c 1a1a2e
+
+# Screenshots
+bindsym Print exec --no-startup-id scrot ~/Pictures/screenshot-%Y-%m-%d-%H%M%S.png
+bindsym $mod+Print exec --no-startup-id scrot -s ~/Pictures/screenshot-%Y-%m-%d-%H%M%S.png
+
+# ═══════════════════════════════════════════════════════════
+# THINKPAD CYBERPUNK TOOLS
+# ═══════════════════════════════════════════════════════════
+
+# Launch cyberpunk dashboard
+bindsym $mod+grave exec kitty -e cyberdash
+
+# Battery management
+bindsym $mod+b exec kitty -e batctl status
+
+# Thermal monitoring
+bindsym $mod+t exec kitty -e thermctl watch
+
+# Power profile switcher
+bindsym $mod+p exec kitty -e powerctl status
+
+# Power profile quick switcher (floating)
+mode "power" {
+    bindsym 1 exec --no-startup-id powerctl preset max-performance; mode "default"
+    bindsym 2 exec --no-startup-id powerctl preset gaming; mode "default"
+    bindsym 3 exec --no-startup-id powerctl preset balanced; mode "default"
+    bindsym 4 exec --no-startup-id powerctl preset quiet; mode "default"
+    bindsym 5 exec --no-startup-id powerctl preset max-battery; mode "default"
+
+    bindsym Return mode "default"
+    bindsym Escape mode "default"
+}
+bindsym $mod+Shift+p mode "power"
+
+# Workspace launcher configuration
+bindsym $mod+Shift+w exec kitty -e workspaceconfig
+
+# Workspace auto-launch shortcuts
+bindsym $mod+Ctrl+1 exec --no-startup-id workspacelaunch 1
+bindsym $mod+Ctrl+2 exec --no-startup-id workspacelaunch 2
+bindsym $mod+Ctrl+3 exec --no-startup-id workspacelaunch 3
+bindsym $mod+Ctrl+4 exec --no-startup-id workspacelaunch 4
+bindsym $mod+Ctrl+5 exec --no-startup-id workspacelaunch 5
+bindsym $mod+Ctrl+6 exec --no-startup-id workspacelaunch 6
+bindsym $mod+Ctrl+7 exec --no-startup-id workspacelaunch 7
+bindsym $mod+Ctrl+8 exec --no-startup-id workspacelaunch 8
+bindsym $mod+Ctrl+9 exec --no-startup-id workspacelaunch 9
+bindsym $mod+Ctrl+0 exec --no-startup-id workspacelaunch 10
+
+# ═══════════════════════════════════════════════════════════
+# STARTUP APPLICATIONS
+# ═══════════════════════════════════════════════════════════
+
+# Compositor for transparency/effects
+exec_always --no-startup-id picom --config ~/.config/picom/picom.conf
+
+# Polybar
+exec_always --no-startup-id ~/.config/polybar/launch.sh
+
+# Wallpaper
+exec_always --no-startup-id feh --bg-scale ~/Pictures/wallpaper.jpg
+
+# Network manager
+exec --no-startup-id nm-applet
+
+# Bluetooth
+exec --no-startup-id blueman-applet
+
+# Apply battery preset on startup
+exec --no-startup-id sleep 5 && batctl preset longevity

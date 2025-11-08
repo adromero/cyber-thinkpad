@@ -1,0 +1,106 @@
+/*
+ * ╔═══════════════════════════════════════════════════════════╗
+ * ║  ROFI CYBERPUNK THEME - THINKPAD EDITION                  ║
+ * ╚═══════════════════════════════════════════════════════════╝
+ */
+
+* {
+    bg:                     #1a1a2e;
+    bg-alt:                 #16213e;
+    fg:                     #00ffff;
+    primary:                #ff00ff;
+    secondary:              #9d7cd8;
+
+    background-color:       @bg;
+    text-color:             @fg;
+
+    margin:                 0;
+    padding:                0;
+    spacing:                0;
+}
+
+window {
+    width:                  600px;
+    border:                 2px;
+    border-color:           @primary;
+    border-radius:          5px;
+}
+
+mainbox {
+    children:               [inputbar, message, listview];
+    padding:                15px;
+}
+
+inputbar {
+    children:               [prompt, entry];
+    background-color:       @bg-alt;
+    border:                 2px;
+    border-color:           @secondary;
+    border-radius:          5px;
+    padding:                8px;
+    margin:                 0 0 10px 0;
+}
+
+prompt {
+    text-color:             @primary;
+    padding:                0 10px 0 0;
+}
+
+entry {
+    text-color:             @fg;
+    placeholder:            "Search...";
+    placeholder-color:      @secondary;
+}
+
+message {
+    margin:                 0 0 10px 0;
+    border:                 2px;
+    border-color:           @primary;
+    border-radius:          5px;
+    background-color:       @bg-alt;
+}
+
+textbox {
+    padding:                8px;
+    text-color:             @primary;
+}
+
+listview {
+    lines:                  8;
+    columns:                1;
+    scrollbar:              true;
+    border:                 0;
+}
+
+element {
+    padding:                8px;
+    border-radius:          3px;
+}
+
+element normal.normal {
+    background-color:       @bg;
+    text-color:             @fg;
+}
+
+element alternate.normal {
+    background-color:       @bg-alt;
+    text-color:             @fg;
+}
+
+element selected.normal {
+    background-color:       @primary;
+    text-color:             @bg;
+    border:                 2px;
+    border-color:           @fg;
+}
+
+element-text {
+    text-color:             inherit;
+}
+
+scrollbar {
+    handle-width:           8px;
+    handle-color:           @primary;
+    background-color:       @bg-alt;
+    border-radius:          3px;
+}

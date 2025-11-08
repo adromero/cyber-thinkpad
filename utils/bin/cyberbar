@@ -1,0 +1,287 @@
+#!/usr/bin/env python3
+"""
+cyberbar - Status Bar Widget Generator
+Generate status bar output for i3status, polybar, waybar, etc.
+"""
+
+import sys
+import json
+import argparse
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
+
+from sysmon import ThinkPadMonitor
+from colors import Colors
+
+# Battery level thresholds (percentage)
+BATTERY_FULL = 90
+BATTERY_HIGH = 75
+BATTERY_MEDIUM = 50
+BATTERY_LOW = 25
+
+# Temperature thresholds (Celsius)
+TEMP_CRITICAL = 80
+TEMP_HIGH = 70
+TEMP_MEDIUM = 60
+
+
+def get_battery_icon(percentage: int, status: str) -> str:
+    """Get battery icon based on percentage and status"""
+    if status == "Charging":
+        return "⚡"
+    elif percentage >= BATTERY_FULL:
+        return "█"
+    elif percentage >= BATTERY_HIGH:
+        return "▇"
+    elif percentage >= BATTERY_MEDIUM:
+        return "▅"
+    elif percentage >= BATTERY_LOW:
+        return "▃"
+    else:
+        return "▁"
+
+
+def get_temp_icon(temp: int) -> str:
+    """Get temperature icon"""
+    if temp >= TEMP_CRITICAL:
+        return "🔥"
+    elif temp >= TEMP_HIGH:
+        return "▲"
+    elif temp >= TEMP_MEDIUM:
+        return "●"
+    else:
+        return "▪"
+
+
+def format_battery_simple(monitor: ThinkPadMonitor) -> str:
+    """Simple battery status"""
+    batteries = monitor.get_batteries()
+    if not batteries:
+        return "NO BAT"
+
+    # Combine all batteries
+    total_capacity = sum(b.capacity for b in batteries) // len(batteries)
+    status = batteries[0].status
+
+    icon = get_battery_icon(total_capacity, status)
+    return f"{icon} {total_capacity}%"
+
+
+def format_battery_detailed(monitor: ThinkPadMonitor) -> str:
+    """Detailed battery status"""
+    batteries = monitor.get_batteries()
+    ac_online = monitor.get_ac_online()
+
+    if not batteries:
+        return "NO BAT"
+
+    parts = []
+    for bat in batteries:
+        icon = get_battery_icon(bat.capacity, bat.status)
+        parts.append(f"{icon}{bat.capacity}%")
+
+        if bat.time_remaining and bat.status in ["Charging", "Discharging"]:
+            hours = bat.time_remaining // 60
+            mins = bat.time_remaining % 60
+            parts.append(f"({hours:02d}:{mins:02d})")
+
+    if ac_online:
+        parts.insert(0, "AC")
+
+    return " ".join(parts)
+
+
+def format_thermal_simple(monitor: ThinkPadMonitor) -> str:
+    """Simple thermal status"""
+    zones = monitor.get_thermal_zones()
+    max_temp = max((z.temp for z in zones if z.temp > 0), default=0)
+
+    icon = get_temp_icon(max_temp)
+    return f"{icon} {max_temp}°C"
+
+
+def format_thermal_detailed(monitor: ThinkPadMonitor) -> str:
+    """Detailed thermal status"""
+    zones = monitor.get_thermal_zones()
+
+    # Get temps from active zones
+    temps = [z.temp for z in zones if z.temp > 0]
+    if not temps:
+        return "NO TEMP"
+
+    max_temp = max(temps)
+    avg_temp = int(sum(temps) / len(temps))
+
+    icon = get_temp_icon(max_temp)
+    return f"{icon} {avg_temp}°C (max: {max_temp}°C)"
+
+
+def format_power_simple(monitor: ThinkPadMonitor) -> str:
+    """Simple power status"""
+    profile = monitor.get_power_profile()
+    if not profile:
+        governor = monitor.get_cpu_governor()
+        if governor:
+            return governor[:4].upper()
+        return "?"
+
+    icons = {
+        "performance": "⚡",
+        "balanced": "◆",
+        "power-save": "❖",
+    }
+    return icons.get(profile, profile[:4].upper())
+
+
+def format_power_detailed(monitor: ThinkPadMonitor) -> str:
+    """Detailed power status"""
+    parts = []
+
+    profile = monitor.get_power_profile()
+    governor = monitor.get_cpu_governor()
+
+    if profile:
+        icons = {
+            "performance": "⚡",
+            "balanced": "◆",
+            "power-save": "❖",
+        }
+        parts.append(f"{icons.get(profile, '?')} {profile}")
+
+    if governor:
+        parts.append(f"[{governor}]")
+
+    # CPU frequency
+    freqs = monitor.get_cpu_freq()
+    if freqs:
+        avg_freq = sum(f[0] for f in freqs.values()) / len(freqs)
+        parts.append(f"{avg_freq:.0f}MHz")
+
+    return " ".join(parts) if parts else "?"
+
+
+def format_system_simple(monitor: ThinkPadMonitor) -> str:
+    """Simple system status"""
+    load = monitor.get_load_average()
+    return f"⚙ {load[0]:.1f}"
+
+
+def format_system_detailed(monitor: ThinkPadMonitor) -> str:
+    """Detailed system status"""
+    parts = []
+
+    # Load
+    load = monitor.get_load_average()
+    parts.append(f"Load: {load[0]:.2f}")
+
+    # Memory
+    mem = monitor.get_memory_info()
+    if mem:
+        used = mem.get("MemTotal", 0) - mem.get("MemAvailable", 0)
+        total = mem.get("MemTotal", 0)
+        if total > 0:
+            mem_percentage = (used / total * 100)
+            parts.append(f"Mem: {mem_percentage:.0f}%")
+
+    return " | ".join(parts)
+
+
+def format_all_simple(monitor: ThinkPadMonitor) -> str:
+    """All info in simple format"""
+    parts = [
+        format_battery_simple(monitor),
+        format_thermal_simple(monitor),
+        format_power_simple(monitor),
+    ]
+    return " | ".join(parts)
+
+
+def format_all_detailed(monitor: ThinkPadMonitor) -> str:
+    """All info in detailed format"""
+    parts = [
+        format_battery_detailed(monitor),
+        format_thermal_detailed(monitor),
+        format_power_detailed(monitor),
+    ]
+    return " | ".join(parts)
+
+
+def format_json(monitor: ThinkPadMonitor) -> str:
+    """JSON format for advanced status bars"""
+    batteries = monitor.get_batteries()
+    zones = monitor.get_thermal_zones()
+
+    # Calculate average temperature safely
+    active_zones = [z.temp for z in zones if z.temp > 0]
+    avg_temp = sum(active_zones) // len(active_zones) if active_zones else 0
+
+    data = {
+        "battery": {
+            "percentage": sum(b.capacity for b in batteries) // len(batteries) if batteries else 0,
+            "status": batteries[0].status if batteries else "Unknown",
+            "ac_online": monitor.get_ac_online(),
+        },
+        "thermal": {
+            "max_temp": max((z.temp for z in zones if z.temp > 0), default=0),
+            "avg_temp": avg_temp,
+        },
+        "power": {
+            "profile": monitor.get_power_profile(),
+            "governor": monitor.get_cpu_governor(),
+        },
+        "system": {
+            "load": monitor.get_load_average()[0],
+        }
+    }
+
+    return json.dumps(data)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate status bar widgets for ThinkPad monitoring"
+    )
+
+    parser.add_argument(
+        "widget",
+        nargs="?",
+        choices=["battery", "thermal", "power", "system", "all"],
+        default="all",
+        help="Widget to display (default: all)"
+    )
+
+    parser.add_argument(
+        "-d", "--detailed",
+        action="store_true",
+        help="Show detailed information"
+    )
+
+    parser.add_argument(
+        "-j", "--json",
+        action="store_true",
+        help="Output in JSON format"
+    )
+
+    args = parser.parse_args()
+
+    monitor = ThinkPadMonitor()
+
+    formatters = {
+        "battery": (format_battery_simple, format_battery_detailed),
+        "thermal": (format_thermal_simple, format_thermal_detailed),
+        "power": (format_power_simple, format_power_detailed),
+        "system": (format_system_simple, format_system_detailed),
+        "all": (format_all_simple, format_all_detailed),
+    }
+
+    if args.json:
+        print(format_json(monitor))
+    else:
+        simple, detailed = formatters[args.widget]
+        formatter = detailed if args.detailed else simple
+        print(formatter(monitor))
+
+
+if __name__ == "__main__":
+    main()

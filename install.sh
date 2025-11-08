@@ -1,0 +1,266 @@
+#!/bin/bash
+# ThinkPad Cyberpunk Unified Installer
+# Install system monitoring tools and optionally the cyberpunk rice
+
+set -euo pipefail
+
+CYAN='\033[38;5;51m'
+MAGENTA='\033[38;5;201m'
+PURPLE='\033[38;5;141m'
+GREEN='\033[38;5;46m'
+RED='\033[38;5;196m'
+YELLOW='\033[38;5;226m'
+RESET='\033[0m'
+
+echo -e "${MAGENTA}"
+echo "╔═══════════════════════════════════════════════════════════╗"
+echo "║  █▀▀ █▄█ █▄▄ █▀▀ █▀█ █▀█ █ █ █▄ █ █▄▀  ║"
+echo "║  █▄▄  █  █▄█ ██▄ █▀▄ █▀▀ █▄█ █ ▀█ █ █  ║"
+echo "╚═══════════════════════════════════════════════════════════╝"
+echo "║  ThinkPad Cyberpunk Installer                             ║"
+echo "╚═══════════════════════════════════════════════════════════╝"
+echo -e "${RESET}"
+
+# Determine project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
+
+echo -e "${CYAN}Installation directory: ${GREEN}$PROJECT_ROOT${RESET}\n"
+
+# Parse command line arguments
+INSTALL_RICE=false
+SKIP_PACKAGES=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --with-rice)
+            INSTALL_RICE=true
+            shift
+            ;;
+        --skip-packages)
+            SKIP_PACKAGES=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --with-rice       Install cyberpunk rice (i3, polybar, rofi, etc.)"
+            echo "  --skip-packages   Skip system package installation"
+            echo "  -h, --help        Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0                  # Install monitoring tools only"
+            echo "  $0 --with-rice      # Install tools + rice"
+            echo "  $0 --skip-packages  # Skip package installation"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Unknown option: $1${RESET}"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# Check Python version
+echo -e "${PURPLE}Checking Python version...${RESET}"
+if ! command -v python3 &> /dev/null; then
+    echo -e "${RED}Error: Python 3 is required but not found${RESET}"
+    exit 1
+fi
+
+PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+echo -e "${GREEN}✓ Python $PYTHON_VERSION found${RESET}\n"
+
+# Install optional packages if requested
+if [ "$SKIP_PACKAGES" = false ] && [ "$INSTALL_RICE" = true ]; then
+    # Detect distro
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO=$ID
+    else
+        echo -e "${RED}Cannot detect distribution${RESET}"
+        exit 1
+    fi
+
+    echo -e "${CYAN}Detected distribution: ${GREEN}$DISTRO${RESET}\n"
+    echo -e "${PURPLE}Installing required packages for rice...${RESET}"
+
+    case $DISTRO in
+        ubuntu|debian|pop|linuxmint)
+            sudo apt update
+            sudo apt install -y \
+                i3 \
+                polybar \
+                rofi \
+                picom \
+                kitty \
+                feh \
+                scrot \
+                brightnessctl \
+                i3lock \
+                fonts-jetbrains-mono \
+                xdotool \
+                wmctrl
+            ;;
+
+        arch|manjaro|endeavouros)
+            sudo pacman -S --noconfirm \
+                i3 \
+                polybar \
+                rofi \
+                picom \
+                kitty \
+                feh \
+                scrot \
+                brightnessctl \
+                i3lock \
+                ttf-jetbrains-mono-nerd \
+                xdotool \
+                wmctrl
+            ;;
+
+        fedora)
+            sudo dnf install -y \
+                i3 \
+                polybar \
+                rofi \
+                picom \
+                kitty \
+                feh \
+                scrot \
+                brightnessctl \
+                i3lock \
+                jetbrains-mono-fonts \
+                xdotool \
+                wmctrl
+            ;;
+
+        *)
+            echo -e "${RED}Unsupported distribution for automatic package installation.${RESET}"
+            echo -e "${YELLOW}Please install manually:${RESET}"
+            echo "  i3 polybar rofi picom kitty feh scrot brightnessctl i3lock xdotool wmctrl"
+            echo ""
+            read -p "Continue anyway? [y/N] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                exit 1
+            fi
+            ;;
+    esac
+
+    echo -e "${GREEN}✓ Packages installed${RESET}\n"
+fi
+
+# Generate config.env with installation paths
+echo -e "${PURPLE}Generating configuration file...${RESET}"
+cat > "$PROJECT_ROOT/config.env" << EOF
+# ThinkPad Cyberpunk Configuration
+# This file contains paths and configuration for the cyberpunk suite
+# Auto-generated by install.sh on $(date)
+
+# Project root directory
+PROJECT_ROOT=$PROJECT_ROOT
+
+# Binary directory (where cyberbar, batctl, etc. are located)
+BIN_DIR=\${PROJECT_ROOT}/utils/bin
+
+# Library directory (Python modules)
+LIB_DIR=\${PROJECT_ROOT}/utils/lib
+
+# Rice configuration directory
+RICE_DIR=\${PROJECT_ROOT}/rice/rice-configs
+EOF
+echo -e "${CYAN}  ✓ Created config at $PROJECT_ROOT/config.env${RESET}"
+
+# Make all scripts executable
+echo -e "${PURPLE}Making scripts executable...${RESET}"
+chmod +x "$PROJECT_ROOT/utils/bin/"*
+chmod +x "$PROJECT_ROOT/rice/"*.sh
+echo -e "${GREEN}✓ Scripts are executable${RESET}\n"
+
+# Setup PATH
+echo -e "${PURPLE}Setting up PATH for cyberpunk tools...${RESET}"
+
+PATH_EXPORT="export PATH=\"$PROJECT_ROOT/utils/bin:\$PATH\""
+
+# Add to .bashrc if not already present
+if [ -f ~/.bashrc ]; then
+    if ! grep -q "thinkpad-cyberpunk/utils/bin" ~/.bashrc 2>/dev/null; then
+        echo "" >> ~/.bashrc
+        echo "# ThinkPad Cyberpunk Tools" >> ~/.bashrc
+        echo "$PATH_EXPORT" >> ~/.bashrc
+        echo -e "${CYAN}  ✓ Added to ~/.bashrc${RESET}"
+    else
+        echo -e "${CYAN}  ✓ Already in ~/.bashrc${RESET}"
+    fi
+fi
+
+# Add to .zshrc if it exists
+if [ -f ~/.zshrc ]; then
+    if ! grep -q "thinkpad-cyberpunk/utils/bin" ~/.zshrc 2>/dev/null; then
+        echo "" >> ~/.zshrc
+        echo "# ThinkPad Cyberpunk Tools" >> ~/.zshrc
+        echo "$PATH_EXPORT" >> ~/.zshrc
+        echo -e "${CYAN}  ✓ Added to ~/.zshrc${RESET}"
+    else
+        echo -e "${CYAN}  ✓ Already in ~/.zshrc${RESET}"
+    fi
+fi
+
+# Export for current session
+export PATH="$PROJECT_ROOT/utils/bin:$PATH"
+echo -e "${GREEN}✓ PATH configured${RESET}\n"
+
+# Install rice if requested
+if [ "$INSTALL_RICE" = true ]; then
+    echo -e "${PURPLE}Installing cyberpunk rice...${RESET}\n"
+
+    # Run rice installer
+    cd "$PROJECT_ROOT/rice"
+    ./install-rice.sh
+    cd "$PROJECT_ROOT"
+else
+    echo -e "${CYAN}Skipping rice installation (use --with-rice to install)${RESET}\n"
+fi
+
+# Installation complete
+echo -e "${MAGENTA}"
+echo "╔═══════════════════════════════════════════════════════════╗"
+echo "║  INSTALLATION COMPLETE!                                   ║"
+echo "╚═══════════════════════════════════════════════════════════╝"
+echo -e "${RESET}"
+
+echo -e "${CYAN}Installed tools:${RESET}"
+echo -e "  ${PURPLE}batctl${RESET}       - Battery management and charging thresholds"
+echo -e "  ${PURPLE}thermctl${RESET}     - Thermal monitoring"
+echo -e "  ${PURPLE}powerctl${RESET}     - Power profile management"
+echo -e "  ${PURPLE}cyberdash${RESET}    - Real-time monitoring dashboard"
+echo -e "  ${PURPLE}cyberbar${RESET}     - Status bar widgets"
+echo -e "  ${PURPLE}cyberkeys${RESET}    - Interactive keybindings reference"
+echo -e "  ${PURPLE}workspacelaunch${RESET} - Auto-launch apps in i3 workspaces"
+echo -e "  ${PURPLE}workspaceconfig${RESET} - Configure workspace launchers"
+echo ""
+
+echo -e "${CYAN}Quick start:${RESET}"
+echo -e "  ${PURPLE}source ~/.bashrc${RESET}      # Reload shell config"
+echo -e "  ${PURPLE}batctl status${RESET}         # Check battery status"
+echo -e "  ${PURPLE}thermctl status${RESET}       # Check thermal status"
+echo -e "  ${PURPLE}cyberdash${RESET}             # Launch dashboard"
+echo ""
+
+if [ "$INSTALL_RICE" = true ]; then
+    echo -e "${CYAN}Rice installed! Next steps:${RESET}"
+    echo -e "  1. Log out of your current session"
+    echo -e "  2. At the login screen, select ${MAGENTA}i3${RESET} as your session"
+    echo -e "  3. Log in and enjoy your cyberpunk desktop!"
+    echo ""
+fi
+
+echo -e "${CYAN}Documentation:${RESET}"
+echo -e "  Full docs:  ${PURPLE}$PROJECT_ROOT/docs/README.md${RESET}"
+echo -e "  Cheatsheet: ${PURPLE}$PROJECT_ROOT/docs/CHEATSHEET.md${RESET}"
+echo ""
+
+echo -e "${GREEN}Enjoy your cyberpunk ThinkPad! 🌃⚡${RESET}\n"

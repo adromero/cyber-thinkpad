@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+"""
+cyberkeys - Display i3 keybindings in a cyberpunk-themed format
+Shows all Super+ keybindings for the ThinkPad Cyberpunk rice
+"""
+
+import sys
+import subprocess
+from pathlib import Path
+
+# Keybindings organized by category
+KEYBINDINGS = {
+    "Essential": [
+        ("Super+Enter", "Open Terminal"),
+        ("Super+D", "App Launcher"),
+        ("Super+Shift+D", "Command Launcher"),
+        ("Super+Shift+Q", "Kill Window"),
+        ("Super+Escape", "Lock Screen"),
+    ],
+
+    "Window Management": [
+        ("Super+H/J/K/L", "Focus Left/Down/Up/Right"),
+        ("Super+Arrows", "Focus Direction"),
+        ("Super+Shift+H/J/K/L", "Move Window"),
+        ("Super+Shift+Arrows", "Move Window"),
+        ("Super+F", "Fullscreen Toggle"),
+        ("Super+Space", "Toggle Floating"),
+        ("Super+Shift+Space", "Float/Tile Toggle"),
+        ("Super+R", "Resize Mode"),
+    ],
+
+    "Layout": [
+        ("Super+B", "Split Horizontal"),
+        ("Super+V", "Split Vertical"),
+        ("Super+S", "Stacking Layout"),
+        ("Super+W", "Tabbed Layout"),
+        ("Super+E", "Toggle Split Layout"),
+        ("Super+A", "Focus Parent"),
+    ],
+
+    "Workspaces": [
+        ("Super+1-0", "Switch Workspace 1-10"),
+        ("Super+Shift+1-0", "Move to Workspace"),
+        ("Super+Ctrl+1-0", "Auto-Launch Workspace"),
+    ],
+
+    "ThinkPad Tools": [
+        ("Super+` (grave)", "Cyberpunk Dashboard"),
+        ("Super+B", "Battery Status"),
+        ("Super+T", "Thermal Monitor"),
+        ("Super+P", "Power Profiles"),
+        ("Super+Shift+P", "Quick Power Switcher"),
+        ("Super+Shift+W", "Workspace Config"),
+    ],
+
+    "System": [
+        ("Super+Shift+C", "Reload i3 Config"),
+        ("Super+Shift+R", "Restart i3"),
+        ("Super+Shift+E", "Exit i3"),
+        ("Print", "Screenshot"),
+        ("Super+Print", "Screenshot Selection"),
+    ],
+
+    "Power Switcher Mode": [
+        ("1", "Max Performance"),
+        ("2", "Gaming"),
+        ("3", "Balanced"),
+        ("4", "Quiet"),
+        ("5", "Max Battery"),
+        ("Esc/Enter", "Exit Mode"),
+    ],
+}
+
+# Cyberpunk colors (ANSI)
+CYAN = '\033[38;5;51m'
+MAGENTA = '\033[38;5;201m'
+PURPLE = '\033[38;5;141m'
+GREEN = '\033[38;5;46m'
+YELLOW = '\033[38;5;226m'
+RESET = '\033[0m'
+
+
+def show_terminal():
+    """Display keybindings in terminal format"""
+    print(f"{MAGENTA}")
+    print("╔═══════════════════════════════════════════════════════════╗")
+    print("║  THINKPAD CYBERPUNK KEYBINDINGS                           ║")
+    print("╚═══════════════════════════════════════════════════════════╝")
+    print(f"{RESET}\n")
+
+    for category, bindings in KEYBINDINGS.items():
+        print(f"{CYAN}▼ {category}{RESET}")
+        print(f"{PURPLE}{'─' * 60}{RESET}")
+
+        for key, description in bindings:
+            # Calculate spacing to align descriptions
+            spacing = 30 - len(key)
+            print(f"  {GREEN}{key}{RESET}{' ' * spacing}{YELLOW}{description}{RESET}")
+
+        print()
+
+
+def execute_keybinding(key_combo: str):
+    """Execute a keybinding using xdotool"""
+    import time
+
+    # Skip category headers and special entries
+    if "═══" in key_combo or not key_combo.strip():
+        return
+
+    # Parse the key combination
+    # Remove leading spaces and split on whitespace to get just the key part
+    key_part = key_combo.strip().split()[0] if key_combo.strip() else ""
+
+    if not key_part or "/" in key_part:
+        # Skip range entries like "Super+1-0" or "Esc/Enter"
+        return
+
+    # Skip range descriptors
+    if "-" in key_part and any(x in key_part for x in ["1-0", "H/J/K/L"]):
+        return
+
+    # Convert to xdotool format
+    # Parse the key combo properly
+    parts = key_part.split('+')
+    xdotool_parts = []
+
+    for part in parts:
+        part_lower = part.lower()
+        if part_lower == "super":
+            xdotool_parts.append("super")
+        elif part_lower == "shift":
+            xdotool_parts.append("shift")
+        elif part_lower == "ctrl":
+            xdotool_parts.append("ctrl")
+        elif part_lower == "alt":
+            xdotool_parts.append("alt")
+        elif part_lower == "return":
+            xdotool_parts.append("Return")
+        elif part_lower == "escape":
+            xdotool_parts.append("Escape")
+        elif part_lower == "print":
+            xdotool_parts.append("Print")
+        elif part_lower in ["grave", "`"]:
+            xdotool_parts.append("grave")
+        elif part_lower == "left":
+            xdotool_parts.append("Left")
+        elif part_lower == "right":
+            xdotool_parts.append("Right")
+        elif part_lower == "up":
+            xdotool_parts.append("Up")
+        elif part_lower == "down":
+            xdotool_parts.append("Down")
+        else:
+            # Regular key - keep lowercase for letters/numbers
+            xdotool_parts.append(part_lower)
+
+    if not xdotool_parts:
+        return
+
+    key_xdotool = "+".join(xdotool_parts)
+
+    try:
+        # Small delay to ensure rofi has closed
+        time.sleep(0.1)
+
+        # Use xdotool to simulate the key press
+        subprocess.run(["xdotool", "key", "--clearmodifiers", key_xdotool], check=True)
+    except subprocess.CalledProcessError:
+        print(f"Failed to execute: {key_xdotool}", file=sys.stderr)
+    except FileNotFoundError:
+        print("Error: xdotool not found. Please install it: sudo apt install xdotool", file=sys.stderr)
+
+
+def show_rofi():
+    """Display keybindings in a rofi menu and execute selected binding"""
+    # Build rofi input
+    lines = []
+
+    for category, bindings in KEYBINDINGS.items():
+        # Category header
+        lines.append(f"═══ {category} ═══")
+
+        for key, description in bindings:
+            lines.append(f"  {key:<28} {description}")
+
+        lines.append("")  # Blank line between categories
+
+    # Prepare rofi input
+    rofi_input = "\n".join(lines)
+
+    # Rofi command with cyberpunk theme
+    rofi_cmd = [
+        "rofi",
+        "-dmenu",
+        "-i",
+        "-p", "Keybindings",
+        "-theme", str(Path.home() / ".config/rofi/cyberpunk.rasi"),
+        "-markup-rows",
+        "-no-custom",
+        "-lines", "25",
+        "-width", "50",
+    ]
+
+    try:
+        result = subprocess.run(
+            rofi_cmd,
+            input=rofi_input,
+            text=True,
+            capture_output=True,
+            check=False
+        )
+
+        # If user selected something, execute it
+        if result.returncode == 0 and result.stdout.strip():
+            selected = result.stdout.strip()
+            execute_keybinding(selected)
+
+    except FileNotFoundError:
+        print("Error: rofi not found. Falling back to terminal display.", file=sys.stderr)
+        show_terminal()
+    except Exception as e:
+        print(f"Error launching rofi: {e}", file=sys.stderr)
+        show_terminal()
+
+
+def show_notify():
+    """Display keybindings as a notification (compact version)"""
+    essential = KEYBINDINGS["Essential"]
+    tools = KEYBINDINGS["ThinkPad Tools"]
+
+    message_lines = ["<b>Essential Shortcuts:</b>"]
+    for key, desc in essential[:5]:
+        message_lines.append(f"  {key}: {desc}")
+
+    message_lines.append("\n<b>ThinkPad Tools:</b>")
+    for key, desc in tools[:4]:
+        message_lines.append(f"  {key}: {desc}")
+
+    message_lines.append("\n<i>Click keybindings icon for full list</i>")
+
+    message = "\n".join(message_lines)
+
+    try:
+        subprocess.run(
+            ["notify-send", "-u", "normal", "-t", "10000",
+             "ThinkPad Cyberpunk Keybindings", message],
+            check=False
+        )
+    except Exception as e:
+        print(f"Error sending notification: {e}", file=sys.stderr)
+        show_terminal()
+
+
+def main():
+    if len(sys.argv) > 1:
+        mode = sys.argv[1]
+        if mode == "--terminal" or mode == "-t":
+            show_terminal()
+        elif mode == "--notify" or mode == "-n":
+            show_notify()
+        elif mode == "--rofi" or mode == "-r":
+            show_rofi()
+        else:
+            print(f"Usage: {sys.argv[0]} [--terminal|-t] [--rofi|-r] [--notify|-n]")
+            print("  --terminal, -t  Display in terminal")
+            print("  --rofi, -r      Display in rofi menu (default)")
+            print("  --notify, -n    Display as notification")
+            sys.exit(1)
+    else:
+        # Default to rofi for GUI display
+        show_rofi()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""
+thermctl - ThinkPad Thermal Monitor
+Monitor CPU temperatures and cooling devices
+"""
+
+import sys
+import time
+import argparse
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
+
+from sysmon import ThinkPadMonitor
+from colors import Colors
+
+# Temperature thresholds (Celsius)
+TEMP_CRITICAL = 80
+TEMP_HIGH = 70
+TEMP_MEDIUM = 60
+TEMP_WARM = 50
+DEFAULT_ALERT_THRESHOLD = 80
+
+# CPU Frequency thresholds (percentage of max)
+FREQ_CRITICAL = 90
+FREQ_HIGH = 70
+FREQ_MEDIUM = 50
+
+
+def temp_color(temp: int) -> str:
+    """Get color based on temperature"""
+    if temp >= TEMP_CRITICAL:
+        return Colors.RED
+    elif temp >= TEMP_HIGH:
+        return Colors.ORANGE
+    elif temp >= TEMP_MEDIUM:
+        return Colors.YELLOW
+    elif temp >= TEMP_WARM:
+        return Colors.CYAN
+    else:
+        return Colors.GREEN
+
+
+def temp_bar(temp: int, max_temp: int = 100, width: int = 20) -> str:
+    """Create temperature bar visualization"""
+    percentage = min(temp / max_temp * 100, 100)
+    filled = int(percentage / 100 * width)
+    empty = width - filled
+
+    color = temp_color(temp)
+    bar = f"{color}{'▓' * filled}{Colors.DIM}{'░' * empty}{Colors.RESET}"
+    return f"[{bar}] {color}{temp:3d}°C{Colors.RESET}"
+
+
+def print_header(text: str):
+    """Print cyberpunk-styled header"""
+    print(f"\n{Colors.BOLD}{Colors.MAGENTA}╔══{'═' * len(text)}══╗{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.MAGENTA}║  {Colors.CYAN}{text}{Colors.MAGENTA}  ║{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.MAGENTA}╚══{'═' * len(text)}══╝{Colors.RESET}\n")
+
+
+def cmd_status(monitor: ThinkPadMonitor, args):
+    """Display thermal status"""
+    print_header("THERMAL STATUS")
+
+    # Thermal zones
+    zones = monitor.get_thermal_zones()
+
+    if not zones:
+        print(f"{Colors.RED}No thermal zones found{Colors.RESET}")
+        return 1
+
+    print(f"{Colors.CYAN}{Colors.BOLD}Thermal Zones:{Colors.RESET}\n")
+
+    for zone in zones:
+        if zone.temp == 0:  # Skip inactive zones
+            continue
+
+        zone_label = zone.type if zone.type != "unknown" else zone.name
+        print(f"{Colors.PURPLE}┌─ {zone_label}{Colors.RESET}")
+        print(f"{Colors.PURPLE}│{Colors.RESET} {temp_bar(zone.temp)}")
+
+        if zone.trip_points:
+            trips = ", ".join(f"{t}°C" for t in zone.trip_points)
+            print(f"{Colors.PURPLE}│{Colors.RESET} {Colors.DIM}Trip points: {trips}{Colors.RESET}")
+
+        print(f"{Colors.PURPLE}└{'─' * 40}{Colors.RESET}\n")
+
+    # Cooling devices
+    devices = monitor.get_cooling_devices()
+    active_devices = [d for d in devices if d.max_state > 0]
+
+    if active_devices:
+        print(f"\n{Colors.CYAN}{Colors.BOLD}Cooling Devices:{Colors.RESET}\n")
+
+        for dev in active_devices:
+            if dev.type == "Processor":
+                continue  # Skip processor frequency scaling
+
+            percentage = (dev.cur_state / dev.max_state * 100) if dev.max_state > 0 else 0
+
+            # Color based on activity
+            if percentage >= 75:
+                color = Colors.RED
+            elif percentage >= 50:
+                color = Colors.ORANGE
+            elif percentage >= 25:
+                color = Colors.YELLOW
+            else:
+                color = Colors.CYAN
+
+            print(f"{Colors.PURPLE}{dev.type:20s}{Colors.RESET} "
+                  f"{color}{dev.cur_state:2d}{Colors.RESET}/{dev.max_state:2d} "
+                  f"[{color}{'█' * int(percentage / 10)}{Colors.DIM}{'░' * (10 - int(percentage / 10))}{Colors.RESET}]")
+
+    # CPU frequencies
+    freqs = monitor.get_cpu_freq()
+    if freqs:
+        print(f"\n{Colors.CYAN}{Colors.BOLD}CPU Frequencies:{Colors.RESET}\n")
+
+        # Group by frequency for cleaner display
+        freq_groups = {}
+        for cpu, (cur, min_f, max_f) in freqs.items():
+            if cur not in freq_groups:
+                freq_groups[cur] = []
+            freq_groups[cur].append(cpu)
+
+        for freq in sorted(freq_groups.keys(), reverse=True):
+            cpus = freq_groups[freq]
+            cpu_list = ", ".join(f"CPU{c}" for c in cpus)
+
+            # Color based on frequency percentage
+            max_possible = max(f[2] for f in freqs.values())
+            percentage = freq / max_possible * 100 if max_possible > 0 else 0
+
+            if percentage >= FREQ_CRITICAL:
+                color = Colors.RED
+            elif percentage >= FREQ_HIGH:
+                color = Colors.ORANGE
+            elif percentage >= FREQ_MEDIUM:
+                color = Colors.YELLOW
+            else:
+                color = Colors.CYAN
+
+            print(f"{Colors.DIM}{cpu_list:20s}{Colors.RESET} {color}{freq:5d} MHz{Colors.RESET}")
+
+    # Governor
+    governor = monitor.get_cpu_governor()
+    if governor:
+        gov_color = {
+            "performance": Colors.RED,
+            "powersave": Colors.GREEN,
+            "schedutil": Colors.CYAN,
+            "ondemand": Colors.YELLOW,
+        }.get(governor, Colors.PURPLE)
+
+        print(f"\n{Colors.PURPLE}Governor:{Colors.RESET} {gov_color}{governor}{Colors.RESET}")
+
+
+def cmd_watch(monitor: ThinkPadMonitor, args):
+    """Watch thermal status in real-time"""
+    interval = args.interval
+
+    try:
+        while True:
+            # Clear screen
+            print("\033[2J\033[H", end="")
+
+            cmd_status(monitor, args)
+
+            print(f"\n{Colors.DIM}Refreshing every {interval}s... (Press Ctrl+C to exit){Colors.RESET}")
+            time.sleep(interval)
+
+    except KeyboardInterrupt:
+        print(f"\n{Colors.CYAN}Monitoring stopped{Colors.RESET}")
+        return 0
+
+
+def cmd_alert(monitor: ThinkPadMonitor, args):
+    """Monitor and alert on high temperatures"""
+    threshold = args.threshold
+    interval = args.interval
+
+    print(f"{Colors.CYAN}Monitoring temperatures (threshold: {threshold}°C)...{Colors.RESET}")
+    print(f"{Colors.DIM}Press Ctrl+C to stop{Colors.RESET}\n")
+
+    try:
+        while True:
+            zones = monitor.get_thermal_zones()
+            max_temp = max((z.temp for z in zones if z.temp > 0), default=0)
+
+            if max_temp >= threshold:
+                print(f"{Colors.RED}⚠ ALERT: Temperature {max_temp}°C (threshold: {threshold}°C){Colors.RESET}")
+
+                # Show which zones are hot
+                for zone in zones:
+                    if zone.temp >= threshold:
+                        print(f"  {Colors.ORANGE}{zone.type}: {zone.temp}°C{Colors.RESET}")
+            else:
+                # Just show status line
+                color = temp_color(max_temp)
+                print(f"{color}● {max_temp:3d}°C{Colors.RESET} ", end="\r", flush=True)
+
+            time.sleep(interval)
+
+    except KeyboardInterrupt:
+        print(f"\n\n{Colors.CYAN}Monitoring stopped{Colors.RESET}")
+        return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ThinkPad Thermal Monitor - Cyberpunk Edition",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
+
+    # Status command
+    subparsers.add_parser("status", help="Show thermal status")
+
+    # Watch command
+    watch_parser = subparsers.add_parser("watch", help="Watch thermal status in real-time")
+    watch_parser.add_argument("-i", "--interval", type=float, default=2.0,
+                             help="Update interval in seconds (default: 2.0)")
+
+    # Alert command
+    alert_parser = subparsers.add_parser("alert", help="Alert on high temperatures")
+    alert_parser.add_argument("-t", "--threshold", type=int, default=DEFAULT_ALERT_THRESHOLD,
+                             help=f"Temperature threshold in Celsius (default: {DEFAULT_ALERT_THRESHOLD})")
+    alert_parser.add_argument("-i", "--interval", type=float, default=1.0,
+                             help="Check interval in seconds (default: 1.0)")
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return 1
+
+    monitor = ThinkPadMonitor()
+
+    commands = {
+        "status": cmd_status,
+        "watch": cmd_watch,
+        "alert": cmd_alert,
+    }
+
+    return commands[args.command](monitor, args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

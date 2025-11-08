@@ -1,0 +1,326 @@
+#!/usr/bin/env python3
+"""
+workspacelaunch - ThinkPad Cyberpunk Workspace Launcher
+Automatically launch and layout applications in i3 workspaces
+"""
+
+import sys
+import json
+import time
+import subprocess
+import argparse
+from pathlib import Path
+from typing import Dict, List, Optional
+
+# Configuration paths
+CONFIG_DIR = Path.home() / ".config" / "thinkpad-cyberpunk"
+CONFIG_FILE = CONFIG_DIR / "workspaces.json"
+
+# Default configuration
+DEFAULT_CONFIG = {
+    "workspaces": {
+        "1": {
+            "name": "TERM",
+            "layout": "split-h",
+            "apps": [
+                {"command": "kitty", "position": "left"},
+                {"command": "kitty -e watch -n 1 'date'", "position": "right"}
+            ]
+        },
+        "2": {
+            "name": "CODE",
+            "apps": [
+                {"command": "cursor"}
+            ]
+        },
+        "3": {
+            "name": "WEB",
+            "apps": [
+                {"command": "firefox"}
+            ]
+        },
+        "4": {
+            "name": "FILES",
+            "apps": [
+                {"command": "nautilus"}
+            ]
+        },
+        "8": {
+            "name": "GAME",
+            "apps": [
+                {"command": "moonlight"}
+            ]
+        },
+        "10": {
+            "name": "SYS",
+            "apps": [
+                {"command": "kitty -e cyberdash"}
+            ]
+        }
+    },
+    "shortcuts": {
+        "Mod4+Ctrl+1": "1",
+        "Mod4+Ctrl+2": "2",
+        "Mod4+Ctrl+3": "3",
+        "Mod4+Ctrl+4": "4",
+        "Mod4+Ctrl+8": "8",
+        "Mod4+Ctrl+0": "10"
+    }
+}
+
+
+class WorkspaceLauncher:
+    """Manages launching applications in i3 workspaces"""
+
+    def __init__(self, config_path: Path = CONFIG_FILE):
+        self.config_path = config_path
+        self.config = self.load_config()
+
+    def load_config(self) -> Dict:
+        """Load workspace configuration from file"""
+        if not self.config_path.exists():
+            print(f"Config not found at {self.config_path}, creating default...")
+            self.save_config(DEFAULT_CONFIG)
+            return DEFAULT_CONFIG
+
+        try:
+            with open(self.config_path) as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing config: {e}")
+            print("Using default configuration")
+            return DEFAULT_CONFIG
+
+    def save_config(self, config: Dict):
+        """Save configuration to file"""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+
+    def i3_msg(self, command: str) -> bool:
+        """Send command to i3"""
+        try:
+            result = subprocess.run(
+                ["i3-msg", command],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            return result.returncode == 0
+        except FileNotFoundError:
+            print("Error: i3-msg not found. Are you running i3?")
+            return False
+
+    def get_workspace_name(self, workspace_id: str) -> str:
+        """Get workspace name from config or use default"""
+        workspace = self.config["workspaces"].get(workspace_id, {})
+        name = workspace.get("name", "")
+        if name:
+            return f"{workspace_id}:  {name}"
+        return workspace_id
+
+    def launch_workspace(self, workspace_id: str):
+        """Launch all applications for a workspace"""
+        workspace = self.config["workspaces"].get(workspace_id)
+
+        if not workspace:
+            print(f"No configuration found for workspace {workspace_id}")
+            return
+
+        workspace_name = self.get_workspace_name(workspace_id)
+        print(f"Launching workspace: {workspace_name}")
+
+        # Switch to workspace
+        self.i3_msg(f"workspace {workspace_name}")
+        time.sleep(0.3)
+
+        # Set layout if specified
+        layout = workspace.get("layout", "default")
+        if layout == "split-h":
+            self.i3_msg("split h")
+        elif layout == "split-v":
+            self.i3_msg("split v")
+        elif layout == "tabbed":
+            self.i3_msg("layout tabbed")
+        elif layout == "stacking":
+            self.i3_msg("layout stacking")
+
+        # Launch apps
+        apps = workspace.get("apps", [])
+        for i, app in enumerate(apps):
+            command = app.get("command")
+            position = app.get("position", "default")
+
+            if not command:
+                continue
+
+            print(f"  Launching: {command}")
+
+            # Launch application
+            try:
+                subprocess.Popen(
+                    command,
+                    shell=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True
+                )
+            except Exception as e:
+                print(f"  Error launching {command}: {e}")
+                continue
+
+            # Wait for window to appear
+            time.sleep(0.5)
+
+            # Apply positioning if specified
+            if position == "left":
+                self.i3_msg("move left")
+            elif position == "right":
+                self.i3_msg("move right")
+            elif position == "up" or position == "top":
+                self.i3_msg("move up")
+            elif position == "down" or position == "bottom":
+                self.i3_msg("move down")
+            elif position == "right-top":
+                self.i3_msg("move right")
+                self.i3_msg("split v")
+            elif position == "right-bottom":
+                self.i3_msg("move right")
+                self.i3_msg("split v")
+                self.i3_msg("move down")
+
+            # For multi-window layouts, adjust split after first window
+            if i == 0 and len(apps) > 1:
+                if layout == "split-h":
+                    self.i3_msg("split h")
+                elif layout == "split-v":
+                    self.i3_msg("split v")
+
+        print(f"Workspace {workspace_name} launched successfully!")
+
+    def list_workspaces(self):
+        """List all configured workspaces"""
+        print("Configured workspaces:")
+        print()
+        for ws_id, ws_config in sorted(self.config["workspaces"].items()):
+            name = ws_config.get("name", "Unnamed")
+            apps = ws_config.get("apps", [])
+            app_count = len(apps)
+
+            print(f"  {ws_id}: {name} ({app_count} app{'s' if app_count != 1 else ''})")
+            for app in apps:
+                cmd = app.get("command", "")
+                # Truncate long commands
+                if len(cmd) > 60:
+                    cmd = cmd[:57] + "..."
+                print(f"     - {cmd}")
+
+    def list_shortcuts(self):
+        """List all configured shortcuts"""
+        shortcuts = self.config.get("shortcuts", {})
+        if not shortcuts:
+            print("No shortcuts configured")
+            return
+
+        print("Configured shortcuts:")
+        print()
+        for shortcut, workspace_id in sorted(shortcuts.items()):
+            ws_config = self.config["workspaces"].get(workspace_id, {})
+            name = ws_config.get("name", "Unknown")
+            print(f"  {shortcut:20s} -> Workspace {workspace_id} ({name})")
+
+    def launch_all_workspaces(self):
+        """Launch all configured workspaces that have apps"""
+        print("Launching all configured workspaces...")
+        print()
+
+        # Get all workspaces that have apps configured
+        workspaces_to_launch = []
+        for ws_id, ws_config in sorted(self.config["workspaces"].items()):
+            apps = ws_config.get("apps", [])
+            if apps:  # Only launch workspaces with apps
+                workspaces_to_launch.append(ws_id)
+
+        if not workspaces_to_launch:
+            print("No workspaces configured with apps. Use 'workspaceconfig' to set them up.")
+            return
+
+        # Launch each workspace with a delay
+        for i, ws_id in enumerate(workspaces_to_launch):
+            if i > 0:
+                time.sleep(1)  # Delay between workspace launches
+            self.launch_workspace(ws_id)
+            print()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ThinkPad Cyberpunk Workspace Launcher",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  workspacelaunch 1              Launch workspace 1 (TERM)
+  workspacelaunch 2              Launch workspace 2 (CODE)
+  workspacelaunch --all          Launch ALL configured workspaces
+  workspacelaunch --list         List all configured workspaces
+  workspacelaunch --shortcuts    List keyboard shortcuts
+
+Configuration:
+  Edit ~/.config/thinkpad-cyberpunk/workspaces.json
+  Or use 'workspaceconfig' for interactive configuration
+        """
+    )
+
+    parser.add_argument(
+        "workspace",
+        nargs="?",
+        help="Workspace ID to launch (1-10)"
+    )
+    parser.add_argument(
+        "-a", "--all",
+        action="store_true",
+        help="Launch all configured workspaces"
+    )
+    parser.add_argument(
+        "-l", "--list",
+        action="store_true",
+        help="List all configured workspaces"
+    )
+    parser.add_argument(
+        "-s", "--shortcuts",
+        action="store_true",
+        help="List keyboard shortcuts"
+    )
+    parser.add_argument(
+        "-c", "--config",
+        type=Path,
+        default=CONFIG_FILE,
+        help="Path to config file"
+    )
+
+    args = parser.parse_args()
+
+    launcher = WorkspaceLauncher(args.config)
+
+    if args.list:
+        launcher.list_workspaces()
+        return 0
+
+    if args.shortcuts:
+        launcher.list_shortcuts()
+        return 0
+
+    if args.all:
+        launcher.launch_all_workspaces()
+        return 0
+
+    if not args.workspace:
+        parser.print_help()
+        return 1
+
+    launcher.launch_workspace(args.workspace)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

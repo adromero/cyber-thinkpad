@@ -1,0 +1,241 @@
+#!/bin/bash
+# ThinkPad Cyberpunk Rice Installer
+
+set -euo pipefail
+
+CYAN='\033[38;5;51m'
+MAGENTA='\033[38;5;201m'
+PURPLE='\033[38;5;141m'
+GREEN='\033[38;5;46m'
+RED='\033[38;5;196m'
+YELLOW='\033[38;5;226m'
+RESET='\033[0m'
+
+echo -e "${MAGENTA}"
+echo "╔═══════════════════════════════════════════════════════════╗"
+echo "║  THINKPAD CYBERPUNK RICE INSTALLER                        ║"
+echo "╚═══════════════════════════════════════════════════════════╝"
+echo -e "${RESET}"
+
+# Detect distro
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    DISTRO=$ID
+else
+    echo -e "${RED}Cannot detect distribution${RESET}"
+    exit 1
+fi
+
+echo -e "${CYAN}Detected distribution: ${GREEN}$DISTRO${RESET}\n"
+
+# Install packages
+echo -e "${PURPLE}Installing required packages...${RESET}"
+
+case $DISTRO in
+    ubuntu|debian|pop|linuxmint)
+        sudo apt update
+        sudo apt install -y \
+            i3 \
+            polybar \
+            rofi \
+            picom \
+            kitty \
+            feh \
+            scrot \
+            brightnessctl \
+            i3lock \
+            fonts-jetbrains-mono \
+            xdotool \
+            wmctrl
+        ;;
+
+    arch|manjaro|endeavouros)
+        sudo pacman -S --noconfirm \
+            i3 \
+            polybar \
+            rofi \
+            picom \
+            kitty \
+            feh \
+            scrot \
+            brightnessctl \
+            i3lock \
+            ttf-jetbrains-mono-nerd \
+            xdotool \
+            wmctrl
+        ;;
+
+    fedora)
+        sudo dnf install -y \
+            i3 \
+            polybar \
+            rofi \
+            picom \
+            kitty \
+            feh \
+            scrot \
+            brightnessctl \
+            i3lock \
+            jetbrains-mono-fonts \
+            xdotool \
+            wmctrl
+        ;;
+
+    *)
+        echo -e "${RED}Unsupported distribution. Please install manually.${RESET}"
+        echo "Required packages: i3 polybar rofi picom kitty feh scrot brightnessctl i3lock"
+        exit 1
+        ;;
+esac
+
+echo -e "${GREEN}✓ Packages installed${RESET}\n"
+
+# Determine project paths
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$PROJECT_DIR/.." && pwd)"
+
+# Backup existing configs using dedicated backup script
+echo -e "${PURPLE}Backing up existing configs...${RESET}"
+if [ -f ./backup.sh ] && [ -x ./backup.sh ]; then
+    ./backup.sh
+elif [ -f ./backup.sh ]; then
+    echo -e "${YELLOW}Warning: backup.sh exists but is not executable${RESET}"
+    # Fallback to simple backup
+    mkdir -p ~/.config-backup
+    for dir in i3 polybar rofi kitty picom; do
+        if [ -d ~/.config/$dir ]; then
+            cp -r ~/.config/$dir ~/.config-backup/ 2>/dev/null || true
+            echo -e "${CYAN}  Backed up: ~/.config/$dir${RESET}"
+        fi
+    done
+    echo -e "${GREEN}✓ Configs backed up to ~/.config-backup${RESET}\n"
+else
+    # Fallback to simple backup
+    mkdir -p ~/.config-backup
+    for dir in i3 polybar rofi kitty picom; do
+        if [ -d ~/.config/$dir ]; then
+            cp -r ~/.config/$dir ~/.config-backup/ 2>/dev/null || true
+            echo -e "${CYAN}  Backed up: ~/.config/$dir${RESET}"
+        fi
+    done
+    echo -e "${GREEN}✓ Configs backed up to ~/.config-backup${RESET}\n"
+fi
+
+# Deploy configs
+echo -e "${PURPLE}Deploying cyberpunk configs...${RESET}"
+mkdir -p ~/.config/{i3,polybar,rofi,kitty,picom}
+
+cp rice-configs/i3/config ~/.config/i3/config
+echo -e "${CYAN}  ✓ i3 config${RESET}"
+
+# Deploy polybar config with path substitution
+sed "s|cyberbar battery|$PROJECT_ROOT/utils/bin/cyberbar battery|g; \
+     s|cyberbar thermal|$PROJECT_ROOT/utils/bin/cyberbar thermal|g; \
+     s|cyberbar power|$PROJECT_ROOT/utils/bin/cyberbar power|g; \
+     s|click-left = cyberkeys|click-left = $PROJECT_ROOT/utils/bin/cyberkeys|g; \
+     s|kitty -e batctl status|kitty -e $PROJECT_ROOT/utils/bin/batctl status|g; \
+     s|kitty -e thermctl watch|kitty -e $PROJECT_ROOT/utils/bin/thermctl watch|g; \
+     s|kitty -e powerctl status|kitty -e $PROJECT_ROOT/utils/bin/powerctl status|g" \
+     rice-configs/polybar/config.ini > ~/.config/polybar/config.ini
+cp rice-configs/polybar/launch.sh ~/.config/polybar/launch.sh
+chmod +x ~/.config/polybar/launch.sh
+echo -e "${CYAN}  ✓ polybar config (with absolute paths)${RESET}"
+
+cp rice-configs/rofi/cyberpunk.rasi ~/.config/rofi/cyberpunk.rasi
+echo -e "${CYAN}  ✓ rofi theme${RESET}"
+
+cp rice-configs/kitty/kitty.conf ~/.config/kitty/kitty.conf
+echo -e "${CYAN}  ✓ kitty config${RESET}"
+
+cp rice-configs/picom/picom.conf ~/.config/picom/picom.conf
+echo -e "${CYAN}  ✓ picom config${RESET}"
+
+echo -e "${GREEN}✓ Configs deployed${RESET}\n"
+
+# Setup PATH for bin tools and generate config
+echo -e "${PURPLE}Setting up PATH for cyberpunk tools...${RESET}"
+
+# Generate config.env with installation paths
+echo -e "${PURPLE}Generating configuration file...${RESET}"
+cat > "$PROJECT_ROOT/config.env" << EOF
+# ThinkPad Cyberpunk Configuration
+# This file contains paths and configuration for the cyberpunk suite
+# Auto-generated by install-rice.sh on $(date)
+
+# Project root directory
+PROJECT_ROOT=$PROJECT_ROOT
+
+# Binary directory (where cyberbar, batctl, etc. are located)
+BIN_DIR=\${PROJECT_ROOT}/utils/bin
+
+# Library directory (Python modules)
+LIB_DIR=\${PROJECT_ROOT}/utils/lib
+
+# Rice configuration directory
+RICE_DIR=\${PROJECT_ROOT}/rice/rice-configs
+EOF
+echo -e "${CYAN}  ✓ Created config at $PROJECT_ROOT/config.env${RESET}"
+
+# Add to .bashrc if not already present
+if [ -f ~/.bashrc ]; then
+    if ! grep -q "thinkpad-cyberpunk/utils/bin" ~/.bashrc; then
+        echo "" >> ~/.bashrc
+        echo "# ThinkPad Cyberpunk Tools" >> ~/.bashrc
+        echo "export PATH=\"$PROJECT_DIR/../utils/bin:\$PATH\"" >> ~/.bashrc
+        echo -e "${CYAN}  ✓ Added to ~/.bashrc${RESET}"
+    else
+        echo -e "${CYAN}  ✓ Already in ~/.bashrc${RESET}"
+    fi
+fi
+
+# Add to .zshrc if it exists
+if [ -f ~/.zshrc ]; then
+    if ! grep -q "thinkpad-cyberpunk/utils/bin" ~/.zshrc; then
+        echo "" >> ~/.zshrc
+        echo "# ThinkPad Cyberpunk Tools" >> ~/.zshrc
+        echo "export PATH=\"$PROJECT_DIR/../utils/bin:\$PATH\"" >> ~/.zshrc
+        echo -e "${CYAN}  ✓ Added to ~/.zshrc${RESET}"
+    else
+        echo -e "${CYAN}  ✓ Already in ~/.zshrc${RESET}"
+    fi
+fi
+
+# Export for current session
+export PATH="$PROJECT_DIR/../utils/bin:$PATH"
+echo -e "${GREEN}✓ PATH configured${RESET}\n"
+
+# Check for wallpaper
+if [ ! -f ~/Pictures/wallpaper.jpg ]; then
+    echo -e "${PURPLE}No wallpaper found at ~/Pictures/wallpaper.jpg${RESET}"
+    echo -e "${CYAN}Download a cyberpunk wallpaper and save it as ~/Pictures/wallpaper.jpg${RESET}"
+    echo -e "${CYAN}Recommended: Search 'cyberpunk neon city wallpaper 1920x1080'${RESET}\n"
+else
+    echo -e "${GREEN}✓ Wallpaper found${RESET}\n"
+fi
+
+# Installation complete
+echo -e "${MAGENTA}"
+echo "╔═══════════════════════════════════════════════════════════╗"
+echo "║  INSTALLATION COMPLETE!                                   ║"
+echo "╚═══════════════════════════════════════════════════════════╝"
+echo -e "${RESET}"
+
+echo -e "${CYAN}Next steps:${RESET}"
+echo -e "  1. Log out of your current session"
+echo -e "  2. At the login screen, select ${MAGENTA}i3${RESET} as your session"
+echo -e "  3. Log in"
+echo -e "  4. Press ${PURPLE}Enter${RESET} when asked about mod key"
+echo -e "  5. Press ${PURPLE}Super+Enter${RESET} to open terminal"
+echo -e "  6. Press ${PURPLE}Super+grave${RESET} to launch cyberdash"
+echo ""
+echo -e "${CYAN}Key bindings:${RESET}"
+echo -e "  ${PURPLE}Super+Enter${RESET}      - Terminal"
+echo -e "  ${PURPLE}Super+d${RESET}          - App launcher"
+echo -e "  ${PURPLE}Super+grave${RESET}      - Cyberpunk dashboard"
+echo -e "  ${PURPLE}Super+Shift+p${RESET}    - Power profile switcher"
+echo ""
+echo -e "${CYAN}Documentation:${RESET}"
+echo -e "  Full guide: ${PURPLE}$PROJECT_DIR/../docs/RICE_GUIDE.md${RESET}"
+echo -e "  Tool docs:  ${PURPLE}$PROJECT_DIR/../docs/README.md${RESET}"
+echo ""
+echo -e "${GREEN}Enjoy your cyberpunk rice! 🌃⚡${RESET}\n"

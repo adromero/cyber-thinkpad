@@ -1,0 +1,170 @@
+#!/bin/bash
+# Floating desktop widget showing ThinkPad stats
+
+# Get script directory for correct path resolution
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CYBERBAR="$SCRIPT_DIR/cyberbar"
+
+# Configuration
+WIDGET_WIDTH=${CYBERWIDGET_WIDTH:-60}
+WIDGET_HEIGHT=${CYBERWIDGET_HEIGHT:-8}
+WIDGET_X=${CYBERWIDGET_X:-50}
+WIDGET_Y=${CYBERWIDGET_Y:-50}
+REFRESH_INTERVAL=${CYBERWIDGET_REFRESH:-5}
+
+# PID file to track running instance
+PID_FILE="/tmp/cyberwidget-$USER.pid"
+
+# Cleanup function
+cleanup_pid_file() {
+    rm -f "$PID_FILE"
+}
+
+# Set up trap to clean up PID file on exit
+trap cleanup_pid_file EXIT INT TERM
+
+# Check if already running using PID file
+if [ -f "$PID_FILE" ]; then
+    OLD_PID=$(cat "$PID_FILE")
+    if ps -p "$OLD_PID" > /dev/null 2>&1; then
+        echo "Widget already running (PID: $OLD_PID)"
+        echo "To stop it: kill $OLD_PID"
+        exit 1
+    else
+        # Stale PID file, remove it
+        rm -f "$PID_FILE"
+    fi
+fi
+
+# Detect available terminal emulator
+if command -v kitty > /dev/null 2>&1; then
+    TERMINAL="kitty"
+elif command -v gnome-terminal > /dev/null 2>&1; then
+    TERMINAL="gnome-terminal"
+elif command -v alacritty > /dev/null 2>&1; then
+    TERMINAL="alacritty"
+elif command -v xterm > /dev/null 2>&1; then
+    TERMINAL="xterm"
+else
+    echo "Error: No compatible terminal emulator found"
+    echo "Install one of: kitty, gnome-terminal, alacritty, xterm"
+    exit 1
+fi
+
+# Launch terminal with widget based on terminal type
+case "$TERMINAL" in
+    kitty)
+        nohup kitty \
+            --title="ThinkPad Monitor" \
+            --override initial_window_width=${WIDGET_WIDTH}c \
+            --override initial_window_height=${WIDGET_HEIGHT}c \
+            --override remember_window_size=no \
+            --override initial_window_x=${WIDGET_X} \
+            --override initial_window_y=${WIDGET_Y} \
+            -- bash -c "
+                while true; do
+                    clear
+                    echo '\033[1;35m╔════════════════════════════════════════════════════════╗\033[0m'
+                    echo '\033[1;35m║\033[0m  \033[1;36mTHINKPAD CYBERPUNK MONITOR\033[0m                       \033[1;35m║\033[0m'
+                    echo '\033[1;35m╚════════════════════════════════════════════════════════╝\033[0m'
+                    echo ''
+                    battery_out=\$('$CYBERBAR' battery -d 2>&1) || battery_out='\033[31mERROR\033[0m'
+                    thermal_out=\$('$CYBERBAR' thermal -d 2>&1) || thermal_out='\033[31mERROR\033[0m'
+                    power_out=\$('$CYBERBAR' power -d 2>&1) || power_out='\033[31mERROR\033[0m'
+                    echo '\033[38;5;141mBattery:\033[0m' \$battery_out
+                    echo '\033[38;5;141mThermal:\033[0m' \$thermal_out
+                    echo '\033[38;5;141mPower:\033[0m  ' \$power_out
+                    echo ''
+                    echo '\033[2mRefreshing every ${REFRESH_INTERVAL}s... (Ctrl+C to close)\033[0m'
+                    sleep $REFRESH_INTERVAL
+                done
+            " >/dev/null 2>&1 &
+        ;;
+    gnome-terminal)
+        nohup gnome-terminal \
+            --title="ThinkPad Monitor" \
+            --geometry=${WIDGET_WIDTH}x${WIDGET_HEIGHT}+${WIDGET_X}+${WIDGET_Y} \
+            --hide-menubar \
+            -- bash -c "
+                while true; do
+                    clear
+                    echo '\033[1;35m╔════════════════════════════════════════════════════════╗\033[0m'
+                    echo '\033[1;35m║\033[0m  \033[1;36mTHINKPAD CYBERPUNK MONITOR\033[0m                       \033[1;35m║\033[0m'
+                    echo '\033[1;35m╚════════════════════════════════════════════════════════╝\033[0m'
+                    echo ''
+                    battery_out=\$('$CYBERBAR' battery -d 2>&1) || battery_out='\033[31mERROR\033[0m'
+                    thermal_out=\$('$CYBERBAR' thermal -d 2>&1) || thermal_out='\033[31mERROR\033[0m'
+                    power_out=\$('$CYBERBAR' power -d 2>&1) || power_out='\033[31mERROR\033[0m'
+                    echo '\033[38;5;141mBattery:\033[0m' \$battery_out
+                    echo '\033[38;5;141mThermal:\033[0m' \$thermal_out
+                    echo '\033[38;5;141mPower:\033[0m  ' \$power_out
+                    echo ''
+                    echo '\033[2mRefreshing every ${REFRESH_INTERVAL}s... (Ctrl+C to close)\033[0m'
+                    sleep $REFRESH_INTERVAL
+                done
+            " >/dev/null 2>&1 &
+        ;;
+    alacritty)
+        nohup alacritty \
+            --title "ThinkPad Monitor" \
+            --option window.dimensions.columns=${WIDGET_WIDTH} \
+            --option window.dimensions.lines=${WIDGET_HEIGHT} \
+            -e bash -c "
+                while true; do
+                    clear
+                    echo '\033[1;35m╔════════════════════════════════════════════════════════╗\033[0m'
+                    echo '\033[1;35m║\033[0m  \033[1;36mTHINKPAD CYBERPUNK MONITOR\033[0m                       \033[1;35m║\033[0m'
+                    echo '\033[1;35m╚════════════════════════════════════════════════════════╝\033[0m'
+                    echo ''
+                    battery_out=\$('$CYBERBAR' battery -d 2>&1) || battery_out='\033[31mERROR\033[0m'
+                    thermal_out=\$('$CYBERBAR' thermal -d 2>&1) || thermal_out='\033[31mERROR\033[0m'
+                    power_out=\$('$CYBERBAR' power -d 2>&1) || power_out='\033[31mERROR\033[0m'
+                    echo '\033[38;5;141mBattery:\033[0m' \$battery_out
+                    echo '\033[38;5;141mThermal:\033[0m' \$thermal_out
+                    echo '\033[38;5;141mPower:\033[0m  ' \$power_out
+                    echo ''
+                    echo '\033[2mRefreshing every ${REFRESH_INTERVAL}s... (Ctrl+C to close)\033[0m'
+                    sleep $REFRESH_INTERVAL
+                done
+            " >/dev/null 2>&1 &
+        ;;
+    xterm)
+        nohup xterm \
+            -title "ThinkPad Monitor" \
+            -geometry ${WIDGET_WIDTH}x${WIDGET_HEIGHT}+${WIDGET_X}+${WIDGET_Y} \
+            -e bash -c "
+                while true; do
+                    clear
+                    echo '\033[1;35m╔════════════════════════════════════════════════════════╗\033[0m'
+                    echo '\033[1;35m║\033[0m  \033[1;36mTHINKPAD CYBERPUNK MONITOR\033[0m                       \033[1;35m║\033[0m'
+                    echo '\033[1;35m╚════════════════════════════════════════════════════════╝\033[0m'
+                    echo ''
+                    battery_out=\$('$CYBERBAR' battery -d 2>&1) || battery_out='\033[31mERROR\033[0m'
+                    thermal_out=\$('$CYBERBAR' thermal -d 2>&1) || thermal_out='\033[31mERROR\033[0m'
+                    power_out=\$('$CYBERBAR' power -d 2>&1) || power_out='\033[31mERROR\033[0m'
+                    echo '\033[38;5;141mBattery:\033[0m' \$battery_out
+                    echo '\033[38;5;141mThermal:\033[0m' \$thermal_out
+                    echo '\033[38;5;141mPower:\033[0m  ' \$power_out
+                    echo ''
+                    echo '\033[2mRefreshing every ${REFRESH_INTERVAL}s... (Ctrl+C to close)\033[0m'
+                    sleep $REFRESH_INTERVAL
+                done
+            " >/dev/null 2>&1 &
+        ;;
+esac
+
+TERM_PID=$!
+echo $TERM_PID > "$PID_FILE"
+
+# Make it stay on top (works with most window managers)
+if command -v xdotool > /dev/null 2>&1 && command -v wmctrl > /dev/null 2>&1; then
+    sleep 1
+    WID=$(xdotool search --name "ThinkPad Monitor" 2>/dev/null | head -1)
+    if [ -n "$WID" ]; then
+        xdotool windowmove "$WID" "$WIDGET_X" "$WIDGET_Y" 2>/dev/null || true
+        wmctrl -i -r "$WID" -b add,above,sticky 2>/dev/null || true
+    fi
+fi
+
+echo "Widget launched (PID: $TERM_PID)"
+echo "To stop: kill $TERM_PID or rm -f $PID_FILE"

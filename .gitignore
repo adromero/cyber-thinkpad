@@ -1,0 +1,51 @@
+# ThinkPad Cyberpunk - Git Ignore
+
+# Generated configuration files
+config.env
+
+# Claude Code local settings (user-specific)
+.claude/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# Backup files
+*.backup
+*.bak
+*~
+
+# Log files
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp

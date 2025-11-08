@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""
+batctl - ThinkPad Battery Control
+Manage battery charging thresholds and monitor battery health
+"""
+
+import sys
+import argparse
+from pathlib import Path
+from typing import Optional
+
+# Add lib to path
+sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
+
+from sysmon import ThinkPadMonitor
+from colors import Colors
+
+# Battery level thresholds (percentage)
+BATTERY_CRITICAL = 20
+BATTERY_LOW = 50
+BATTERY_GOOD = 80
+
+# Battery health thresholds (percentage)
+BATTERY_HEALTH_GOOD = 80
+BATTERY_HEALTH_FAIR = 60
+
+
+def format_bar(percentage: int, width: int = 20, color: str = Colors.CYAN) -> str:
+    """Create a cyberpunk-styled progress bar"""
+    filled = int(percentage / 100 * width)
+    empty = width - filled
+
+    # Color based on percentage
+    if percentage <= BATTERY_CRITICAL:
+        bar_color = Colors.RED
+    elif percentage <= BATTERY_LOW:
+        bar_color = Colors.YELLOW
+    elif percentage <= BATTERY_GOOD:
+        bar_color = Colors.CYAN
+    else:
+        bar_color = Colors.GREEN
+
+    bar = f"{bar_color}{'█' * filled}{Colors.DIM}{'░' * empty}{Colors.RESET}"
+    return f"[{bar}] {percentage:3d}%"
+
+
+def format_time(minutes: Optional[int]) -> str:
+    """Format minutes to HH:MM"""
+    if minutes is None:
+        return "N/A"
+    hours = minutes // 60
+    mins = minutes % 60
+    return f"{hours:02d}:{mins:02d}"
+
+
+def print_header(text: str):
+    """Print cyberpunk-styled header"""
+    print(f"\n{Colors.BOLD}{Colors.MAGENTA}╔══{'═' * len(text)}══╗{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.MAGENTA}║  {Colors.CYAN}{text}{Colors.MAGENTA}  ║{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.MAGENTA}╚══{'═' * len(text)}══╝{Colors.RESET}\n")
+
+
+def cmd_status(monitor: ThinkPadMonitor, args):
+    """Display battery status"""
+    print_header("BATTERY STATUS")
+
+    batteries = monitor.get_batteries()
+    ac_online = monitor.get_ac_online()
+
+    # AC status
+    ac_status = f"{Colors.GREEN}CONNECTED{Colors.RESET}" if ac_online else f"{Colors.DIM}DISCONNECTED{Colors.RESET}"
+    print(f"{Colors.PURPLE}AC Power:{Colors.RESET} {ac_status}")
+
+    if not batteries:
+        print(f"\n{Colors.RED}No batteries detected{Colors.RESET}")
+        return
+
+    for bat in batteries:
+        print(f"\n{Colors.CYAN}{Colors.BOLD}┌─ {bat.name} {'─' * 40}{Colors.RESET}")
+
+        # Status
+        status_icon = {
+            "Charging": f"{Colors.GREEN}▲",
+            "Discharging": f"{Colors.YELLOW}▼",
+            "Full": f"{Colors.CYAN}●",
+            "Not charging": f"{Colors.BLUE}■",
+        }.get(bat.status, "?")
+        print(f"{Colors.CYAN}│{Colors.RESET} Status:   {status_icon} {bat.status}{Colors.RESET}")
+
+        # Charge level
+        print(f"{Colors.CYAN}│{Colors.RESET} Charge:   {format_bar(bat.capacity)}")
+
+        # Health
+        health_color = Colors.GREEN if bat.health >= BATTERY_HEALTH_GOOD else Colors.YELLOW if bat.health >= BATTERY_HEALTH_FAIR else Colors.RED
+        print(f"{Colors.CYAN}│{Colors.RESET} Health:   {health_color}{bat.health}%{Colors.RESET} "
+              f"({bat.energy_full // 1000} / {bat.energy_full_design // 1000} mWh)")
+
+        # Time remaining
+        if bat.time_remaining:
+            time_str = format_time(bat.time_remaining)
+            time_label = "Time to full" if bat.status == "Charging" else "Time left"
+            print(f"{Colors.CYAN}│{Colors.RESET} {time_label}: {Colors.YELLOW}{time_str}{Colors.RESET}")
+
+        # Power draw
+        power_watts = bat.power_now / 1_000_000
+        if power_watts > 0:
+            print(f"{Colors.CYAN}│{Colors.RESET} Power:    {Colors.ORANGE}{power_watts:.1f}W{Colors.RESET}")
+
+        # Thresholds
+        print(f"{Colors.CYAN}│{Colors.RESET} Thresholds: "
+              f"{Colors.MAGENTA}{bat.charge_start_threshold}%{Colors.RESET} - "
+              f"{Colors.MAGENTA}{bat.charge_end_threshold}%{Colors.RESET}")
+
+        # Cycle count
+        if bat.cycle_count is not None:
+            print(f"{Colors.CYAN}│{Colors.RESET} Cycles:   {Colors.PURPLE}{bat.cycle_count}{Colors.RESET}")
+
+        print(f"{Colors.CYAN}└{'─' * 50}{Colors.RESET}")
+
+
+def cmd_set_threshold(monitor: ThinkPadMonitor, args):
+    """Set battery charge thresholds"""
+    battery = args.battery
+    start = args.start
+    end = args.end
+
+    # Validate
+    if not (0 <= start < end <= 100):
+        print(f"{Colors.RED}Error: Invalid thresholds. Must be 0 <= start < end <= 100{Colors.RESET}")
+        return 1
+
+    # Check if battery exists
+    batteries = monitor.get_batteries()
+    if not any(b.name == battery for b in batteries):
+        print(f"{Colors.RED}Error: Battery '{battery}' not found{Colors.RESET}")
+        available = ", ".join(b.name for b in batteries)
+        print(f"Available batteries: {available}")
+        return 1
+
+    # Set thresholds
+    success = monitor.set_battery_threshold(battery, start, end)
+
+    if success:
+        print(f"{Colors.GREEN}✓{Colors.RESET} Battery thresholds set successfully")
+        print(f"  {battery}: {Colors.MAGENTA}{start}%{Colors.RESET} - {Colors.MAGENTA}{end}%{Colors.RESET}")
+    else:
+        print(f"{Colors.RED}✗ Failed to set thresholds{Colors.RESET}")
+        print(f"  {Colors.DIM}Hint: This operation requires root privileges{Colors.RESET}")
+        print(f"  {Colors.DIM}Try: sudo {' '.join(sys.argv)}{Colors.RESET}")
+        return 1
+
+    return 0
+
+
+def cmd_preset(monitor: ThinkPadMonitor, args):
+    """Apply battery threshold presets"""
+    presets = {
+        "longevity": (40, 80),   # Best for battery health
+        "balanced": (50, 90),     # Good balance
+        "desktop": (60, 80),      # AC-plugged usage
+        "travel": (75, 100),      # Maximum capacity for travel
+        "full": (95, 100),        # Always charge to full
+    }
+
+    preset = args.preset
+
+    if preset not in presets:
+        print(f"{Colors.RED}Unknown preset: {preset}{Colors.RESET}")
+        print(f"\nAvailable presets:")
+        for name, (s, e) in presets.items():
+            print(f"  {Colors.CYAN}{name:12s}{Colors.RESET} {s:3d}% - {e:3d}%")
+        return 1
+
+    start, end = presets[preset]
+
+    # Apply to all batteries
+    batteries = monitor.get_batteries()
+    success_count = 0
+
+    for bat in batteries:
+        if monitor.set_battery_threshold(bat.name, start, end):
+            success_count += 1
+            print(f"{Colors.GREEN}✓{Colors.RESET} {bat.name}: {start}% - {end}%")
+        else:
+            print(f"{Colors.RED}✗{Colors.RESET} {bat.name}: Failed")
+
+    if success_count == 0:
+        print(f"\n{Colors.RED}Failed to apply preset{Colors.RESET}")
+        print(f"{Colors.DIM}Hint: Try running with sudo{Colors.RESET}")
+        return 1
+
+    print(f"\n{Colors.GREEN}Applied preset:{Colors.RESET} {Colors.BOLD}{preset}{Colors.RESET}")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ThinkPad Battery Control - Cyberpunk Edition",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
+
+    # Status command
+    subparsers.add_parser("status", help="Show battery status")
+
+    # Set threshold command
+    set_parser = subparsers.add_parser("set", help="Set battery charge thresholds")
+    set_parser.add_argument("battery", help="Battery name (e.g., BAT0)")
+    set_parser.add_argument("start", type=int, help="Start charging threshold (0-100)")
+    set_parser.add_argument("end", type=int, help="Stop charging threshold (0-100)")
+
+    # Preset command
+    preset_parser = subparsers.add_parser("preset", help="Apply threshold preset")
+    preset_parser.add_argument(
+        "preset",
+        choices=["longevity", "balanced", "desktop", "travel", "full"],
+        help="Preset configuration"
+    )
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return 1
+
+    monitor = ThinkPadMonitor()
+
+    commands = {
+        "status": cmd_status,
+        "set": cmd_set_threshold,
+        "preset": cmd_preset,
+    }
+
+    return commands[args.command](monitor, args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

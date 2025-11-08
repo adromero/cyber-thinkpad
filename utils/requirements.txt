@@ -1,0 +1,34 @@
+# ThinkPad Cyberpunk Rice - Python Requirements
+#
+# This project uses only Python standard library - no external dependencies required!
+#
+# Minimum Python version: 3.7
+#   - Required for: dataclasses, f-strings, type hints
+#
+# The following standard library modules are used:
+#   - pathlib (Path operations)
+#   - dataclasses (@dataclass decorator)
+#   - typing (type hints: Dict, List, Optional, Tuple)
+#   - enum (Enum class)
+#   - os (OS utilities, getloadavg)
+#   - glob (file pattern matching)
+#   - subprocess (running external commands)
+#   - argparse (CLI argument parsing)
+#   - time (sleep, time operations)
+#   - json (JSON serialization)
+#   - datetime (date/time formatting)
+#   - socket (hostname lookup)
+#
+# To verify your Python version:
+#   python3 --version
+#
+# Python 3.7+ is available by default on:
+#   - Ubuntu 20.04+ (python3.8+)
+#   - Debian 11+ (python3.9+)
+#   - Fedora 33+ (python3.9+)
+#   - Arch Linux (latest python3)
+#
+# If you're on an older distribution, install Python 3.7+:
+#   Ubuntu/Debian: sudo apt install python3.7
+#   Fedora: sudo dnf install python3
+#   Arch: sudo pacman -S python

@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""
+powerctl - ThinkPad Power Profile Controller
+Switch between power profiles and CPU governors
+"""
+
+import sys
+import argparse
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
+
+from sysmon import ThinkPadMonitor, PowerProfile
+from colors import Colors
+
+# CPU frequency percentage thresholds
+FREQ_CRITICAL = 80
+FREQ_HIGH = 60
+FREQ_MEDIUM = 40
+
+# Load average thresholds
+LOAD_MEDIUM = 2
+LOAD_HIGH = 4
+
+# Memory usage thresholds (percentage)
+MEM_MEDIUM = 70
+MEM_HIGH = 85
+
+
+def print_header(text: str):
+    """Print cyberpunk-styled header"""
+    print(f"\n{Colors.BOLD}{Colors.MAGENTA}╔══{'═' * len(text)}══╗{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.MAGENTA}║  {Colors.CYAN}{text}{Colors.MAGENTA}  ║{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.MAGENTA}╚══{'═' * len(text)}══╝{Colors.RESET}\n")
+
+
+def cmd_status(monitor: ThinkPadMonitor, args):
+    """Show current power profile and governor"""
+    print_header("POWER STATUS")
+
+    # Power profile (if available)
+    profile = monitor.get_power_profile()
+    if profile:
+        profile_icon = {
+            "performance": f"{Colors.RED}⚡",
+            "balanced": f"{Colors.YELLOW}◆",
+            "power-save": f"{Colors.GREEN}❖",
+        }.get(profile, "●")
+
+        profile_color = {
+            "performance": Colors.RED,
+            "balanced": Colors.YELLOW,
+            "power-save": Colors.GREEN,
+        }.get(profile, Colors.CYAN)
+
+        print(f"{Colors.PURPLE}Power Profile:{Colors.RESET} {profile_icon} {profile_color}{profile}{Colors.RESET}")
+    else:
+        print(f"{Colors.DIM}Power profile daemon not available{Colors.RESET}")
+
+    # CPU Governor
+    governor = monitor.get_cpu_governor()
+    if governor:
+        gov_icon = {
+            "performance": f"{Colors.RED}⚡",
+            "powersave": f"{Colors.GREEN}❖",
+            "schedutil": f"{Colors.CYAN}◆",
+            "ondemand": f"{Colors.YELLOW}◈",
+            "conservative": f"{Colors.BLUE}◇",
+        }.get(governor, "●")
+
+        gov_color = {
+            "performance": Colors.RED,
+            "powersave": Colors.GREEN,
+            "schedutil": Colors.CYAN,
+            "ondemand": Colors.YELLOW,
+            "conservative": Colors.BLUE,
+        }.get(governor, Colors.PURPLE)
+
+        print(f"{Colors.PURPLE}CPU Governor:{Colors.RESET}  {gov_icon} {gov_color}{governor}{Colors.RESET}")
+
+        # Available governors
+        available = monitor.get_available_governors()
+        if available:
+            print(f"{Colors.DIM}Available: {', '.join(available)}{Colors.RESET}")
+
+    # CPU frequencies
+    freqs = monitor.get_cpu_freq()
+    if freqs:
+        avg_freq = sum(f[0] for f in freqs.values()) / len(freqs)
+        max_freq = max(f[2] for f in freqs.values())
+
+        percentage = (avg_freq / max_freq * 100) if max_freq > 0 else 0
+
+        if percentage >= FREQ_CRITICAL:
+            freq_color = Colors.RED
+        elif percentage >= FREQ_HIGH:
+            freq_color = Colors.ORANGE
+        elif percentage >= FREQ_MEDIUM:
+            freq_color = Colors.YELLOW
+        else:
+            freq_color = Colors.GREEN
+
+        print(f"\n{Colors.PURPLE}Average CPU Freq:{Colors.RESET} {freq_color}{avg_freq:.0f} MHz{Colors.RESET} "
+              f"{Colors.DIM}({percentage:.0f}% of max){Colors.RESET}")
+
+    # Load average
+    load = monitor.get_load_average()
+    load_color = Colors.GREEN if load[0] < LOAD_MEDIUM else Colors.YELLOW if load[0] < LOAD_HIGH else Colors.RED
+    print(f"{Colors.PURPLE}Load Average:{Colors.RESET}    {load_color}{load[0]:.2f}{Colors.RESET} "
+          f"{Colors.DIM}{load[1]:.2f} {load[2]:.2f}{Colors.RESET}")
+
+    # Memory
+    mem = monitor.get_memory_info()
+    if mem:
+        used = mem.get("MemTotal", 0) - mem.get("MemAvailable", 0)
+        total = mem.get("MemTotal", 0)
+        if total > 0:
+            mem_percentage = (used / total * 100)
+            mem_color = Colors.GREEN if mem_percentage < MEM_MEDIUM else Colors.YELLOW if mem_percentage < MEM_HIGH else Colors.RED
+
+            print(f"{Colors.PURPLE}Memory Usage:{Colors.RESET}    {mem_color}{used} MB{Colors.RESET} / {total} MB "
+                  f"{Colors.DIM}({mem_percentage:.0f}%){Colors.RESET}")
+
+
+def cmd_set_profile(monitor: ThinkPadMonitor, args):
+    """Set power profile"""
+    profile_map = {
+        "performance": PowerProfile.PERFORMANCE,
+        "balanced": PowerProfile.BALANCED,
+        "power-save": PowerProfile.POWERSAVE,
+    }
+
+    profile = profile_map.get(args.profile)
+    if not profile:
+        print(f"{Colors.RED}Invalid profile: {args.profile}{Colors.RESET}")
+        return 1
+
+    success = monitor.set_power_profile(profile)
+
+    if success:
+        icon = {
+            PowerProfile.PERFORMANCE: f"{Colors.RED}⚡",
+            PowerProfile.BALANCED: f"{Colors.YELLOW}◆",
+            PowerProfile.POWERSAVE: f"{Colors.GREEN}❖",
+        }.get(profile, "●")
+
+        print(f"{Colors.GREEN}✓{Colors.RESET} Power profile set to {icon} {Colors.BOLD}{profile.value}{Colors.RESET}")
+    else:
+        print(f"{Colors.RED}✗ Failed to set power profile{Colors.RESET}")
+        print(f"{Colors.DIM}Hint: Make sure power-profiles-daemon is installed and running{Colors.RESET}")
+        return 1
+
+    return 0
+
+
+def cmd_set_governor(monitor: ThinkPadMonitor, args):
+    """Set CPU governor"""
+    governor = args.governor
+
+    # Check if governor is available
+    available = monitor.get_available_governors()
+    if available and governor not in available:
+        print(f"{Colors.RED}Governor '{governor}' not available{Colors.RESET}")
+        print(f"Available governors: {', '.join(available)}")
+        return 1
+
+    success = monitor.set_cpu_governor(governor)
+
+    if success:
+        print(f"{Colors.GREEN}✓{Colors.RESET} CPU governor set to {Colors.BOLD}{governor}{Colors.RESET}")
+    else:
+        print(f"{Colors.RED}✗ Failed to set CPU governor{Colors.RESET}")
+        print(f"{Colors.DIM}Hint: This operation requires root privileges{Colors.RESET}")
+        print(f"{Colors.DIM}Try: sudo {' '.join(sys.argv)}{Colors.RESET}")
+        return 1
+
+    return 0
+
+
+def cmd_preset(monitor: ThinkPadMonitor, args):
+    """Apply power preset"""
+    preset = args.preset
+
+    presets = {
+        "max-performance": {
+            "profile": PowerProfile.PERFORMANCE,
+            "governor": "performance",
+            "description": "Maximum performance, high power consumption",
+        },
+        "gaming": {
+            "profile": PowerProfile.PERFORMANCE,
+            "governor": "schedutil",
+            "description": "High performance with dynamic scaling",
+        },
+        "balanced": {
+            "profile": PowerProfile.BALANCED,
+            "governor": "schedutil",
+            "description": "Balance between performance and efficiency",
+        },
+        "quiet": {
+            "profile": PowerProfile.BALANCED,
+            "governor": "powersave",
+            "description": "Reduced performance, quieter operation",
+        },
+        "max-battery": {
+            "profile": PowerProfile.POWERSAVE,
+            "governor": "powersave",
+            "description": "Maximum battery life, minimal performance",
+        },
+    }
+
+    if preset not in presets:
+        print(f"{Colors.RED}Unknown preset: {preset}{Colors.RESET}\n")
+        print("Available presets:")
+        for name, config in presets.items():
+            print(f"  {Colors.CYAN}{name:18s}{Colors.RESET} {Colors.DIM}{config['description']}{Colors.RESET}")
+        return 1
+
+    config = presets[preset]
+
+    print(f"{Colors.CYAN}Applying preset:{Colors.RESET} {Colors.BOLD}{preset}{Colors.RESET}")
+    print(f"{Colors.DIM}{config['description']}{Colors.RESET}\n")
+
+    # Set power profile
+    if monitor.set_power_profile(config["profile"]):
+        print(f"{Colors.GREEN}✓{Colors.RESET} Power profile: {config['profile'].value}")
+    else:
+        print(f"{Colors.YELLOW}⚠{Colors.RESET} Could not set power profile")
+
+    # Set CPU governor
+    if monitor.set_cpu_governor(config["governor"]):
+        print(f"{Colors.GREEN}✓{Colors.RESET} CPU governor: {config['governor']}")
+    else:
+        print(f"{Colors.RED}✗{Colors.RESET} Failed to set CPU governor (try with sudo)")
+        return 1
+
+    print(f"\n{Colors.GREEN}Preset applied successfully{Colors.RESET}")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ThinkPad Power Profile Controller - Cyberpunk Edition",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
+
+    # Status command
+    subparsers.add_parser("status", help="Show current power status")
+
+    # Set profile command
+    profile_parser = subparsers.add_parser("profile", help="Set power profile")
+    profile_parser.add_argument(
+        "profile",
+        choices=["performance", "balanced", "power-save"],
+        help="Power profile to set"
+    )
+
+    # Set governor command
+    gov_parser = subparsers.add_parser("governor", help="Set CPU governor")
+    gov_parser.add_argument("governor", help="CPU governor to set")
+
+    # Preset command
+    preset_parser = subparsers.add_parser("preset", help="Apply power preset")
+    preset_parser.add_argument(
+        "preset",
+        choices=["max-performance", "gaming", "balanced", "quiet", "max-battery"],
+        help="Preset configuration"
+    )
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return 1
+
+    monitor = ThinkPadMonitor()
+
+    commands = {
+        "status": cmd_status,
+        "profile": cmd_set_profile,
+        "governor": cmd_set_governor,
+        "preset": cmd_preset,
+    }
+
+    return commands[args.command](monitor, args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
