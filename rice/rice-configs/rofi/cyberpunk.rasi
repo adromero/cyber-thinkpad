@@ -88,10 +88,10 @@ element alternate.normal {
 }
 
 element selected.normal {
-    background-color:       @primary;
-    text-color:             @bg;
+    background-color:       rgba(255, 0, 255, 0.2);
+    text-color:             @fg;
     border:                 2px;
-    border-color:           @fg;
+    border-color:           @primary;
 }
 
 element-text {
