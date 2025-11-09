@@ -125,21 +125,17 @@ fi
 echo -e "${PURPLE}Deploying cyberpunk configs...${RESET}"
 mkdir -p ~/.config/{i3,polybar,rofi,kitty,picom}
 
-cp rice-configs/i3/config ~/.config/i3/config
-echo -e "${CYAN}  ✓ i3 config${RESET}"
+# Deploy i3 config with path substitution
+sed "s|__CYBER_TOOLS_PATH__|$PROJECT_ROOT/utils/bin|g" \
+    rice-configs/i3/config > ~/.config/i3/config
+echo -e "${CYAN}  ✓ i3 config (with paths: $PROJECT_ROOT/utils/bin)${RESET}"
 
 # Deploy polybar config with path substitution
-sed "s|cyberbar battery|$PROJECT_ROOT/utils/bin/cyberbar battery|g; \
-     s|cyberbar thermal|$PROJECT_ROOT/utils/bin/cyberbar thermal|g; \
-     s|cyberbar power|$PROJECT_ROOT/utils/bin/cyberbar power|g; \
-     s|click-left = cyberkeys|click-left = $PROJECT_ROOT/utils/bin/cyberkeys|g; \
-     s|kitty -e batctl status|kitty -e $PROJECT_ROOT/utils/bin/batctl status|g; \
-     s|kitty -e thermctl watch|kitty -e $PROJECT_ROOT/utils/bin/thermctl watch|g; \
-     s|kitty -e powerctl status|kitty -e $PROJECT_ROOT/utils/bin/powerctl status|g" \
-     rice-configs/polybar/config.ini > ~/.config/polybar/config.ini
+sed "s|__CYBER_TOOLS_PATH__|$PROJECT_ROOT/utils/bin|g" \
+    rice-configs/polybar/config.ini > ~/.config/polybar/config.ini
 cp rice-configs/polybar/launch.sh ~/.config/polybar/launch.sh
 chmod +x ~/.config/polybar/launch.sh
-echo -e "${CYAN}  ✓ polybar config (with absolute paths)${RESET}"
+echo -e "${CYAN}  ✓ polybar config (with paths: $PROJECT_ROOT/utils/bin)${RESET}"
 
 cp rice-configs/rofi/cyberpunk.rasi ~/.config/rofi/cyberpunk.rasi
 echo -e "${CYAN}  ✓ rofi theme${RESET}"

@@ -4,6 +4,10 @@
 
 set $mod Mod4
 
+# Path to cyberpunk tools - set by install script
+# Default: searches common install locations
+set $cyber_tools __CYBER_TOOLS_PATH__
+
 # Cyberpunk color scheme
 set $bg       #1a1a2e
 set $bg-alt   #16213e
@@ -28,8 +32,8 @@ bindsym $mod+Return exec kitty
 bindsym $mod+Shift+q kill
 
 # Start rofi (program launcher)
-bindsym $mod+d exec "rofi -show drun -theme ~/.config/rofi/cyberpunk.rasi"
-bindsym $mod+Shift+d exec "rofi -show run -theme ~/.config/rofi/cyberpunk.rasi"
+bindsym $mod+d exec "rofi -show drun -theme $HOME/.config/rofi/cyberpunk.rasi"
+bindsym $mod+Shift+d exec "rofi -show run -theme $HOME/.config/rofi/cyberpunk.rasi"
 
 # Change focus
 bindsym $mod+h focus left
@@ -173,32 +177,35 @@ bindsym XF86MonBrightnessDown exec --no-startup-id brightnessctl set 5%-
 bindsym $mod+Escape exec i3lock -c 1a1a2e
 
 # Screenshots
-bindsym Print exec --no-startup-id scrot ~/Pictures/screenshot-%Y-%m-%d-%H%M%S.png
-bindsym $mod+Print exec --no-startup-id scrot -s ~/Pictures/screenshot-%Y-%m-%d-%H%M%S.png
+bindsym Print exec --no-startup-id scrot $HOME/Pictures/screenshot-%Y-%m-%d-%H%M%S.png
+bindsym $mod+Print exec --no-startup-id scrot -s $HOME/Pictures/screenshot-%Y-%m-%d-%H%M%S.png
 
 # ═══════════════════════════════════════════════════════════
 # THINKPAD CYBERPUNK TOOLS
 # ═══════════════════════════════════════════════════════════
 
 # Launch cyberpunk dashboard
-bindsym $mod+grave exec kitty -e cyberdash
+bindsym $mod+grave exec kitty -e $cyber_tools/cyberdash
+
+# Restart Polybar (useful after suspend/resume)
+bindsym $mod+Shift+b exec --no-startup-id $HOME/.config/polybar/launch.sh
 
 # Battery management
-bindsym $mod+b exec kitty -e batctl status
+bindsym $mod+Ctrl+b exec kitty --hold $cyber_tools/batctl status
 
 # Thermal monitoring
-bindsym $mod+t exec kitty -e thermctl watch
+bindsym $mod+t exec kitty -e $cyber_tools/thermctl watch
 
 # Power profile switcher
-bindsym $mod+p exec kitty -e powerctl status
+bindsym $mod+p exec kitty --hold $cyber_tools/powerctl status
 
 # Power profile quick switcher (floating)
 mode "power" {
-    bindsym 1 exec --no-startup-id powerctl preset max-performance; mode "default"
-    bindsym 2 exec --no-startup-id powerctl preset gaming; mode "default"
-    bindsym 3 exec --no-startup-id powerctl preset balanced; mode "default"
-    bindsym 4 exec --no-startup-id powerctl preset quiet; mode "default"
-    bindsym 5 exec --no-startup-id powerctl preset max-battery; mode "default"
+    bindsym 1 exec --no-startup-id $cyber_tools/powerctl preset max-performance; mode "default"
+    bindsym 2 exec --no-startup-id $cyber_tools/powerctl preset gaming; mode "default"
+    bindsym 3 exec --no-startup-id $cyber_tools/powerctl preset balanced; mode "default"
+    bindsym 4 exec --no-startup-id $cyber_tools/powerctl preset quiet; mode "default"
+    bindsym 5 exec --no-startup-id $cyber_tools/powerctl preset max-battery; mode "default"
 
     bindsym Return mode "default"
     bindsym Escape mode "default"
@@ -206,32 +213,44 @@ mode "power" {
 bindsym $mod+Shift+p mode "power"
 
 # Workspace launcher configuration
-bindsym $mod+Shift+w exec kitty -e workspaceconfig
+bindsym $mod+Shift+w exec kitty -e $cyber_tools/workspaceconfig
 
-# Workspace auto-launch shortcuts
-bindsym $mod+Ctrl+1 exec --no-startup-id workspacelaunch 1
-bindsym $mod+Ctrl+2 exec --no-startup-id workspacelaunch 2
-bindsym $mod+Ctrl+3 exec --no-startup-id workspacelaunch 3
-bindsym $mod+Ctrl+4 exec --no-startup-id workspacelaunch 4
-bindsym $mod+Ctrl+5 exec --no-startup-id workspacelaunch 5
-bindsym $mod+Ctrl+6 exec --no-startup-id workspacelaunch 6
-bindsym $mod+Ctrl+7 exec --no-startup-id workspacelaunch 7
-bindsym $mod+Ctrl+8 exec --no-startup-id workspacelaunch 8
-bindsym $mod+Ctrl+9 exec --no-startup-id workspacelaunch 9
-bindsym $mod+Ctrl+0 exec --no-startup-id workspacelaunch 10
+# Launch ALL configured workspaces at once
+bindsym $mod+Ctrl+a exec --no-startup-id $cyber_tools/workspacelaunch --all
+
+# Workspace auto-launch shortcuts (individual workspaces)
+bindsym $mod+Ctrl+1 exec --no-startup-id $cyber_tools/workspacelaunch 1
+bindsym $mod+Ctrl+2 exec --no-startup-id $cyber_tools/workspacelaunch 2
+bindsym $mod+Ctrl+3 exec --no-startup-id $cyber_tools/workspacelaunch 3
+bindsym $mod+Ctrl+4 exec --no-startup-id $cyber_tools/workspacelaunch 4
+bindsym $mod+Ctrl+5 exec --no-startup-id $cyber_tools/workspacelaunch 5
+bindsym $mod+Ctrl+6 exec --no-startup-id $cyber_tools/workspacelaunch 6
+bindsym $mod+Ctrl+7 exec --no-startup-id $cyber_tools/workspacelaunch 7
+bindsym $mod+Ctrl+8 exec --no-startup-id $cyber_tools/workspacelaunch 8
+bindsym $mod+Ctrl+9 exec --no-startup-id $cyber_tools/workspacelaunch 9
+bindsym $mod+Ctrl+0 exec --no-startup-id $cyber_tools/workspacelaunch 10
 
 # ═══════════════════════════════════════════════════════════
 # STARTUP APPLICATIONS
 # ═══════════════════════════════════════════════════════════
 
+# xcape - Make Super key open cyberkeys when pressed alone
+exec --no-startup-id killall xcape 2>/dev/null; xcape -e 'Super_L=Control_L|Shift_L|F1'
+
+# Keybinding for Super alone (triggered by xcape)
+bindsym Control+Shift+F1 exec $cyber_tools/cyberkeys
+
 # Compositor for transparency/effects
-exec_always --no-startup-id picom --config ~/.config/picom/picom.conf
+exec_always --no-startup-id picom --config $HOME/.config/picom/picom.conf
 
 # Polybar
-exec_always --no-startup-id ~/.config/polybar/launch.sh
+exec_always --no-startup-id $HOME/.config/polybar/launch.sh
+
+# Polybar watchdog (auto-restart if it crashes or after suspend)
+exec --no-startup-id $HOME/.local/bin/polybar-watchdog.sh
 
 # Wallpaper
-exec_always --no-startup-id feh --bg-scale ~/Pictures/wallpaper.jpg
+exec_always --no-startup-id feh --bg-scale $HOME/Pictures/wallpaper.jpg
 
 # Network manager
 exec --no-startup-id nm-applet
@@ -240,4 +259,4 @@ exec --no-startup-id nm-applet
 exec --no-startup-id blueman-applet
 
 # Apply battery preset on startup
-exec --no-startup-id sleep 5 && batctl preset longevity
+exec --no-startup-id sleep 5 && $cyber_tools/batctl preset longevity
