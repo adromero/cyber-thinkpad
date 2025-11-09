@@ -38,6 +38,18 @@ workspacelaunch --shortcuts
 
 ## Configuration
 
+### Security Considerations
+
+**⚠️ IMPORTANT SECURITY NOTE:**
+
+The workspace launcher executes commands from the configuration file (`~/.config/thinkpad-cyberpunk/workspaces.json`). Only add commands you trust to this configuration file.
+
+- **Do not edit the config file with untrusted input**
+- **Do not share your config file without reviewing its contents first**
+- **Only configure applications you've verified are safe to run**
+
+The launcher uses `shlex.split()` for secure command parsing, but you should still be cautious about what commands you add to your configuration.
+
 ### Using the TUI Configurator
 
 Press `Super+Shift+W` or run:

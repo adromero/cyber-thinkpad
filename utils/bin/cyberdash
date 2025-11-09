@@ -4,6 +4,7 @@ cyberdash - ThinkPad Cyberpunk Dashboard
 Real-time system monitoring with cyberpunk aesthetics
 """
 
+import os
 import sys
 import time
 import argparse
@@ -328,6 +329,19 @@ def main():
                        help="Compact mode (less spacing)")
 
     args = parser.parse_args()
+
+    # Check terminal size
+    try:
+        columns, rows = os.get_terminal_size()
+        if columns < 84 or rows < 36:
+            print(f"{Colors.RED}Terminal too small!{Colors.RESET}")
+            print(f"Current size: {columns}x{rows}")
+            print(f"Minimum required: 84x36")
+            print(f"\nPlease resize your terminal and try again.")
+            sys.exit(1)
+    except OSError:
+        # If we can't get terminal size, continue anyway
+        pass
 
     monitor = ThinkPadMonitor()
 

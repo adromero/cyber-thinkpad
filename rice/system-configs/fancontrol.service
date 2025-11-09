@@ -1,12 +1,12 @@
 [Unit]
 Description=ThinkPad Fan Control Daemon
-Documentation=https://github.com/YOUR_USERNAME/thinkpad-cyberpunk
+Documentation=https://github.com/adromero/cyber-thinkpad
 After=multi-user.target
 
 [Service]
 Type=simple
-# Update this path to match your installation directory
-ExecStart=/home/sulaco/Projects/thinkpad-cyberpunk/utils/bin/fanctl daemon
+# This path will be updated automatically during installation
+ExecStart=__INSTALL_PATH__/utils/bin/fanctl daemon
 Restart=on-failure
 RestartSec=5s
 

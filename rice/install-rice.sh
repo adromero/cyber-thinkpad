@@ -19,8 +19,12 @@ echo -e "${RESET}"
 
 # Detect distro
 if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    DISTRO=$ID
+    # Parse file instead of sourcing for security
+    DISTRO=$(grep '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
+    if [ -z "$DISTRO" ]; then
+        echo -e "${RED}Cannot detect distribution ID${RESET}"
+        exit 1
+    fi
 else
     echo -e "${RED}Cannot detect distribution${RESET}"
     exit 1
@@ -94,6 +98,9 @@ echo -e "${GREEN}✓ Packages installed${RESET}\n"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$PROJECT_DIR/.." && pwd)"
 
+# Escape PROJECT_ROOT for safe use in sed (escape /, &, and \)
+ESCAPED_PROJECT_ROOT=$(printf '%s\n' "$PROJECT_ROOT" | sed -e 's/[\/&]/\\&/g')
+
 # Backup existing configs using dedicated backup script
 echo -e "${PURPLE}Backing up existing configs...${RESET}"
 if [ -f ./backup.sh ] && [ -x ./backup.sh ]; then
@@ -126,14 +133,15 @@ echo -e "${PURPLE}Deploying cyberpunk configs...${RESET}"
 mkdir -p ~/.config/{i3,polybar,rofi,kitty,picom}
 
 # Deploy i3 config with path substitution
-sed "s|__CYBER_TOOLS_PATH__|$PROJECT_ROOT/utils/bin|g" \
+sed "s|__CYBER_TOOLS_PATH__|$ESCAPED_PROJECT_ROOT/utils/bin|g" \
     rice-configs/i3/config > ~/.config/i3/config
 echo -e "${CYAN}  ✓ i3 config (with paths: $PROJECT_ROOT/utils/bin)${RESET}"
 
 # Deploy polybar config with path substitution
-sed "s|__CYBER_TOOLS_PATH__|$PROJECT_ROOT/utils/bin|g" \
+sed "s|__CYBER_TOOLS_PATH__|$ESCAPED_PROJECT_ROOT/utils/bin|g" \
     rice-configs/polybar/config.ini > ~/.config/polybar/config.ini
-cp rice-configs/polybar/launch.sh ~/.config/polybar/launch.sh
+sed "s|__CYBER_TOOLS_PATH__|$ESCAPED_PROJECT_ROOT/utils/bin|g" \
+    rice-configs/polybar/launch.sh > ~/.config/polybar/launch.sh
 chmod +x ~/.config/polybar/launch.sh
 echo -e "${CYAN}  ✓ polybar config (with paths: $PROJECT_ROOT/utils/bin)${RESET}"
 
@@ -234,4 +242,4 @@ echo -e "${CYAN}Documentation:${RESET}"
 echo -e "  Full guide: ${PURPLE}$PROJECT_DIR/../docs/RICE_GUIDE.md${RESET}"
 echo -e "  Tool docs:  ${PURPLE}$PROJECT_DIR/../docs/README.md${RESET}"
 echo ""
-echo -e "${GREEN}Enjoy your cyberpunk rice! 🌃⚡${RESET}\n"
+echo -e "${GREEN}Enjoy your cyberpunk rice!${RESET}\n"

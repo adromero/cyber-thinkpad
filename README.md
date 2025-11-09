@@ -2,6 +2,9 @@
 
 A cyberpunk-themed system monitoring suite and rice (desktop customization) for ThinkPad laptops running Linux.
 
+**Built and tested on:** ThinkPad T480
+**Should work on:** Most ThinkPad models with similar ACPI interfaces (T/X/P series)
+
 ```
 ╔═══════════════════════════════════════════════════════════╗
 ║  █▀▀ █▄█ █▄▄ █▀▀ █▀█ █▀█ █ █ █▄ █ █▄▀  ║
@@ -13,7 +16,7 @@ A cyberpunk-themed system monitoring suite and rice (desktop customization) for 
 
 This project is organized into three main directories:
 
-### 📊 `utils/` - System Monitoring Tools
+### `utils/` - System Monitoring Tools
 Battery management, thermal monitoring, power profiles, and cyberpunk-themed dashboards for ThinkPad laptops.
 
 **Tools included:**
@@ -29,7 +32,7 @@ Battery management, thermal monitoring, power profiles, and cyberpunk-themed das
 
 **[View full documentation →](docs/README.md)**
 
-### 🎨 `rice/` - Desktop Customization
+### `rice/` - Desktop Customization
 Cyberpunk-themed configurations for i3, polybar, rofi, kitty, and picom.
 
 **Installation:**
@@ -40,7 +43,7 @@ cd rice
 
 **[View rice guide →](docs/RICE_GUIDE.md)**
 
-### 📖 `docs/` - Documentation
+### `docs/` - Documentation
 Complete documentation for all tools, installation guides, troubleshooting, and more.
 
 **Key docs:**
@@ -56,8 +59,8 @@ Complete documentation for all tools, installation guides, troubleshooting, and 
 Clone the repository and run the installer:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/thinkpad-cyberpunk.git
-cd thinkpad-cyberpunk
+git clone https://github.com/adromero/cyber-thinkpad.git
+cd cyber-thinkpad
 ./install.sh
 ```
 
@@ -95,23 +98,34 @@ cyberdash            # Launch dashboard
 
 ## Features
 
-- 🔋 Battery health monitoring and charging threshold management
-- 🔥 Real-time thermal monitoring with color-coded temperatures
-- ⚡ Power profile switching and CPU governor control
-- 🌬️ **Automatic fan curve daemon** - Keeps temps safe with intelligent fan control
-- 🎯 Manual fan speed control for fine-tuning cooling or noise levels
-- 💻 Beautiful cyberpunk-themed dashboard
-- 📊 Status bar widgets for i3/polybar/waybar
-- ⌨️ Interactive keybindings reference with one-click access and execution
-- 🚀 Workspace auto-launcher with custom app configurations
-- 🎨 Complete desktop rice with i3, polybar, rofi, kitty, picom
-- 🌃 Neon cyberpunk color scheme throughout
+- Battery health monitoring and charging threshold management
+- Real-time thermal monitoring with color-coded temperatures
+- Power profile switching and CPU governor control
+- **Automatic fan curve daemon** - Keeps temps safe with intelligent fan control
+- Manual fan speed control for fine-tuning cooling or noise levels
+- Beautiful cyberpunk-themed dashboard
+- Status bar widgets for i3/polybar/waybar
+- Interactive keybindings reference with one-click access and execution
+- Workspace auto-launcher with custom app configurations
+- Complete desktop rice with i3, polybar, rofi, kitty, picom
+- Neon cyberpunk color scheme throughout
 
 ## Requirements
 
-- ThinkPad laptop running Linux
-- Python 3 (no external dependencies for monitoring tools)
-- For rice: i3, polybar, rofi, kitty, picom (installed by installer)
+- **ThinkPad laptop** (built for T480, compatible with most T/X/P series models)
+- Linux with `thinkpad_acpi` kernel module
+- Python 3.6+ (no external dependencies for monitoring tools)
+- For rice: i3, polybar, rofi, kitty, picom (auto-installed by installer)
+
+### Compatibility Notes
+
+This suite was developed and tested on a **ThinkPad T480** but should work on most ThinkPad models that support:
+- Battery charge thresholds via `/sys/class/power_supply/BAT*/charge_control_*_threshold`
+- Fan control via `/proc/acpi/ibm/fan` (requires `thinkpad_acpi` module with `fan_control=1`)
+- Standard thermal zones in `/sys/class/thermal/`
+
+**Known compatible models:** T480, T490, T14, X1 Carbon (Gen 6+), X13, P series
+**May require tweaking:** Older models (pre-2018) or non-T/X/P series
 
 ## Documentation
 
@@ -130,6 +144,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Credits
 
-Built for ThinkPad enthusiasts who appreciate cyberpunk aesthetics and system control.
+Built and tested on a ThinkPad T480 for ThinkPad enthusiasts who appreciate cyberpunk aesthetics and system control.
 
-Stay cyber. 🌃
+Community contributions and compatibility reports for other ThinkPad models are welcome!
+
+Stay cyber.

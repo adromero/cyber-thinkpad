@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 
 from sysmon import ThinkPadMonitor
 from colors import Colors
+from audit import log_operation
 
 # Battery level thresholds (percentage)
 BATTERY_CRITICAL = 20
@@ -139,6 +140,13 @@ def cmd_set_threshold(monitor: ThinkPadMonitor, args):
 
     # Set thresholds
     success = monitor.set_battery_threshold(battery, start, end)
+
+    # Log the operation
+    log_operation(
+        "battery_threshold",
+        f"{battery}: start={start}%, end={end}%",
+        success=success
+    )
 
     if success:
         print(f"{Colors.GREEN}✓{Colors.RESET} Battery thresholds set successfully")

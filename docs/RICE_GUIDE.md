@@ -1,4 +1,4 @@
-# ThinkPad Cyberpunk Rice Guide 🌃
+# ThinkPad Cyberpunk Rice Guide
 
 Complete guide to transform your ThinkPad into a cyberpunk paradise.
 
@@ -373,4 +373,4 @@ scrot -s ~/Pictures/rice.png
 
 ---
 
-**Ready to rice?** Log into i3 and enjoy your cyberpunk ThinkPad! 🌃⚡
+**Ready to rice?** Log into i3 and enjoy your cyberpunk ThinkPad!

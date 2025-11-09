@@ -17,6 +17,9 @@ RESET='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# Escape PROJECT_ROOT for safe use in sed (escape /, &, and \)
+ESCAPED_PROJECT_ROOT=$(printf '%s\n' "$PROJECT_ROOT" | sed -e 's/[\/&]/\\&/g')
+
 echo -e "${MAGENTA}"
 echo "╔═══════════════════════════════════════════════════════════╗"
 echo "║  ThinkPad Fan Control Setup                               ║"
@@ -71,7 +74,7 @@ if [[ ! $REPLY =~ ^[Nn]$ ]]; then
 
     # Update systemd service with correct path
     TEMP_SERVICE=$(mktemp)
-    sed "s|/home/sulaco/Projects/thinkpad-cyberpunk|$PROJECT_ROOT|g" \
+    sed "s|__INSTALL_PATH__|$ESCAPED_PROJECT_ROOT|g" \
         "$PROJECT_ROOT/rice/system-configs/fancontrol.service" > "$TEMP_SERVICE"
 
     cp "$TEMP_SERVICE" /etc/systemd/system/fancontrol.service

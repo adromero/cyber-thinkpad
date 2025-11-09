@@ -7,10 +7,46 @@ Cyberpunk-themed hardware monitoring for ThinkPad laptops
 import os
 import sys
 import glob
+import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable, Any
 from dataclasses import dataclass
 from enum import Enum
+from functools import wraps
+
+
+def cached_with_ttl(ttl_seconds: float = 0.5):
+    """
+    Decorator to cache function results with a time-to-live
+    Prevents excessive file system reads for monitoring operations
+
+    Args:
+        ttl_seconds: Cache lifetime in seconds (default: 0.5)
+    """
+    def decorator(func: Callable) -> Callable:
+        cache = {}
+        cache_time = {}
+
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            # Create cache key from function name and arguments
+            cache_key = (func.__name__, args, tuple(sorted(kwargs.items())))
+            current_time = time.time()
+
+            # Check if we have a valid cached result
+            if cache_key in cache:
+                if current_time - cache_time[cache_key] < ttl_seconds:
+                    return cache[cache_key]
+
+            # Call function and cache result
+            result = func(self, *args, **kwargs)
+            cache[cache_key] = result
+            cache_time[cache_key] = current_time
+
+            return result
+
+        return wrapper
+    return decorator
 
 
 class PowerProfile(Enum):
@@ -103,6 +139,7 @@ class ThinkPadMonitor:
         except ValueError:
             return default
 
+    @cached_with_ttl(ttl_seconds=1.0)
     def get_batteries(self) -> List[BatteryInfo]:
         """Get information for all batteries"""
         batteries = []
@@ -168,6 +205,7 @@ class ThinkPadMonitor:
         except PermissionError:
             return False
 
+    @cached_with_ttl(ttl_seconds=0.5)
     def get_thermal_zones(self) -> List[ThermalZone]:
         """Get all thermal zone information"""
         zones = []
@@ -208,6 +246,7 @@ class ThinkPadMonitor:
 
         return devices
 
+    @cached_with_ttl(ttl_seconds=0.5)
     def get_cpu_freq(self) -> Dict[int, Tuple[int, int, int]]:
         """Get CPU frequency info for each core (current, min, max) in MHz"""
         import re
@@ -216,7 +255,10 @@ class ThinkPadMonitor:
         # More precise pattern to match only cpu0, cpu1, etc.
         cpu_pattern = re.compile(r'^cpu(\d+)$')
 
-        for cpu_path in sorted(self.cpu_path.glob("cpu[0-9]*")):
+        # Optimized glob pattern - matches cpu0-cpu999 while excluding cpuidle, cpufreq
+        for cpu_path in sorted(list(self.cpu_path.glob("cpu[0-9]")) +
+                               list(self.cpu_path.glob("cpu[0-9][0-9]")) +
+                               list(self.cpu_path.glob("cpu[0-9][0-9][0-9]"))):
             # Extract CPU number from path name (e.g., "cpu0" -> 0)
             cpu_name = cpu_path.name
             match = cpu_pattern.match(cpu_name)
@@ -248,7 +290,10 @@ class ThinkPadMonitor:
         """Set CPU frequency governor (requires root)"""
         try:
             # Collect all governor paths first to ensure atomicity
-            gov_paths = list(self.cpu_path.glob("cpu[0-9]*/cpufreq/scaling_governor"))
+            # Optimized glob pattern - matches cpu0-cpu999
+            gov_paths = (list(self.cpu_path.glob("cpu[0-9]/cpufreq/scaling_governor")) +
+                        list(self.cpu_path.glob("cpu[0-9][0-9]/cpufreq/scaling_governor")) +
+                        list(self.cpu_path.glob("cpu[0-9][0-9][0-9]/cpufreq/scaling_governor")))
             if not gov_paths:
                 return False
 
@@ -329,6 +374,7 @@ class ThinkPadMonitor:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
 
+    @cached_with_ttl(ttl_seconds=1.0)
     def get_load_average(self) -> Tuple[float, float, float]:
         """Get system load average (1, 5, 15 minutes)"""
         try:
@@ -336,6 +382,7 @@ class ThinkPadMonitor:
         except OSError:
             return (0.0, 0.0, 0.0)
 
+    @cached_with_ttl(ttl_seconds=1.0)
     def get_memory_info(self) -> Dict[str, int]:
         """Get memory information in MB
 

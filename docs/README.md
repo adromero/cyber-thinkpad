@@ -11,12 +11,12 @@ A cyberpunk-themed system monitoring suite for ThinkPad laptops running Linux.
 
 ## Features
 
-- 🔋 **Battery Management** - Monitor battery health, set charging thresholds, apply presets
-- 🔥 **Thermal Monitoring** - Real-time temperature tracking and cooling device status
-- ⚡ **Power Profiles** - Switch between performance modes and CPU governors
-- 🌬️ **Fan Control** - Manual fan speed control for better cooling or quieter operation
-- 💻 **System Dashboard** - Beautiful cyberpunk-themed TUI with real-time stats
-- 📊 **Status Bar Widgets** - Generate output for i3status, polybar, waybar, etc.
+- **Battery Management** - Monitor battery health, set charging thresholds, apply presets
+- **Thermal Monitoring** - Real-time temperature tracking and cooling device status
+- **Power Profiles** - Switch between performance modes and CPU governors
+- **Fan Control** - Manual fan speed control for better cooling or quieter operation
+- **System Dashboard** - Beautiful cyberpunk-themed TUI with real-time stats
+- **Status Bar Widgets** - Generate output for i3status, polybar, waybar, etc.
 
 ## Installation
 
@@ -86,7 +86,7 @@ thermctl watch -i 1.0                 # Update every 1 second
 thermctl alert -t 85                  # Alert if temp >= 85°C
 ```
 
-### ⚡ powerctl - Power Profile Controller
+### powerctl - Power Profile Controller
 
 Manage power profiles and CPU governors.
 
@@ -426,4 +426,4 @@ Free to use, modify, and distribute. No warranty provided.
 
 Built for ThinkPad enthusiasts who appreciate cyberpunk aesthetics and system control.
 
-Stay cyber. 🌃
+Stay cyber.

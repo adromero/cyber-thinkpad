@@ -2,8 +2,8 @@
 
 set -u
 
-# Add cyberbar scripts to PATH
-export PATH="$HOME/Projects/thinkpad-cyberpunk/utils/bin:$PATH"
+# Add cyberbar scripts to PATH (will be replaced during installation)
+export PATH="__CYBER_TOOLS_PATH__:$PATH"
 
 # Terminate already running bar instances
 # Using -q to suppress error messages if polybar isn't running

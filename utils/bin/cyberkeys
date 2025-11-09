@@ -5,6 +5,7 @@ Shows all Super+ keybindings for the ThinkPad Cyberpunk rice
 """
 
 import sys
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -104,6 +105,11 @@ def execute_keybinding(key_combo: str):
     """Execute a keybinding using xdotool"""
     import time
 
+    # Check if xdotool is available
+    if not check_command("xdotool"):
+        print("Error: xdotool not found. Please install it: sudo apt install xdotool", file=sys.stderr)
+        return
+
     # Skip category headers and special entries
     if "═══" in key_combo or not key_combo.strip():
         return
@@ -195,12 +201,19 @@ def show_rofi():
         "-dmenu",
         "-i",
         "-p", "Keybindings",
-        "-theme", str(Path.home() / ".config/rofi/cyberpunk.rasi"),
+    ]
+
+    # Add theme if it exists, otherwise use rofi's default
+    theme_path = Path.home() / ".config/rofi/cyberpunk.rasi"
+    if theme_path.exists():
+        rofi_cmd.extend(["-theme", str(theme_path)])
+
+    rofi_cmd.extend([
         "-markup-rows",
         "-no-custom",
         "-lines", "25",
         "-width", "50",
-    ]
+    ])
 
     try:
         result = subprocess.run(
@@ -252,7 +265,26 @@ def show_notify():
         show_terminal()
 
 
+def check_command(cmd: str) -> bool:
+    """Check if a command exists in PATH"""
+    return shutil.which(cmd) is not None
+
+
 def main():
+    # Check for required commands based on mode
+    mode = sys.argv[1] if len(sys.argv) > 1 else "--rofi"
+
+    if mode in ("--rofi", "-r") or len(sys.argv) == 1:
+        if not check_command("rofi"):
+            print("Warning: rofi not found. Falling back to terminal display.", file=sys.stderr)
+            show_terminal()
+            return
+    elif mode in ("--notify", "-n"):
+        if not check_command("notify-send"):
+            print("Warning: notify-send not found. Falling back to terminal display.", file=sys.stderr)
+            show_terminal()
+            return
+
     if len(sys.argv) > 1:
         mode = sys.argv[1]
         if mode == "--terminal" or mode == "-t":

@@ -3,7 +3,7 @@
 # Generated configuration files
 config.env
 
-# Claude Code local settings (user-specific)
+# Local editor/IDE settings (user-specific)
 .claude/
 
 # Python cache

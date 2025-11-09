@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 
 from sysmon import ThinkPadMonitor, PowerProfile
 from colors import Colors
+from audit import log_operation
 
 # CPU frequency percentage thresholds
 FREQ_CRITICAL = 80
@@ -137,6 +138,13 @@ def cmd_set_profile(monitor: ThinkPadMonitor, args):
 
     success = monitor.set_power_profile(profile)
 
+    # Log the operation
+    log_operation(
+        "power_profile",
+        f"profile={profile.value}",
+        success=success
+    )
+
     if success:
         icon = {
             PowerProfile.PERFORMANCE: f"{Colors.RED}⚡",
@@ -165,6 +173,13 @@ def cmd_set_governor(monitor: ThinkPadMonitor, args):
         return 1
 
     success = monitor.set_cpu_governor(governor)
+
+    # Log the operation
+    log_operation(
+        "cpu_governor",
+        f"governor={governor}",
+        success=success
+    )
 
     if success:
         print(f"{Colors.GREEN}✓{Colors.RESET} CPU governor set to {Colors.BOLD}{governor}{Colors.RESET}")

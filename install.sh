@@ -77,8 +77,12 @@ echo -e "${GREEN}✓ Python $PYTHON_VERSION found${RESET}\n"
 if [ "$SKIP_PACKAGES" = false ] && [ "$INSTALL_RICE" = true ]; then
     # Detect distro
     if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        DISTRO=$ID
+        # Parse file instead of sourcing for security
+        DISTRO=$(grep '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
+        if [ -z "$DISTRO" ]; then
+            echo -e "${RED}Cannot detect distribution ID${RESET}"
+            exit 1
+        fi
     else
         echo -e "${RED}Cannot detect distribution${RESET}"
         exit 1
@@ -270,4 +274,4 @@ echo -e "  Full docs:  ${PURPLE}$PROJECT_ROOT/docs/README.md${RESET}"
 echo -e "  Cheatsheet: ${PURPLE}$PROJECT_ROOT/docs/CHEATSHEET.md${RESET}"
 echo ""
 
-echo -e "${GREEN}Enjoy your cyberpunk ThinkPad! 🌃⚡${RESET}\n"
+echo -e "${GREEN}Enjoy your cyberpunk ThinkPad!${RESET}\n"

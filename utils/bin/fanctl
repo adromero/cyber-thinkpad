@@ -82,7 +82,7 @@ class FanController:
             if param_file.exists():
                 return param_file.read_text().strip() == "Y"
             return False
-        except:
+        except (FileNotFoundError, PermissionError, OSError):
             return False
 
 
@@ -292,9 +292,16 @@ class FanCurve:
             ]
             return
 
+        # Check file permissions for security
+        import os
+        stat_info = os.stat(self.config_path)
+        if stat_info.st_mode & 0o002:  # World writable
+            print(f"{Colors.YELLOW}WARNING: Config file {self.config_path} is world-writable!{Colors.RESET}", file=sys.stderr)
+            print(f"{Colors.YELLOW}This is a security risk. Fix with: chmod 644 {self.config_path}{Colors.RESET}", file=sys.stderr)
+
         try:
             with open(self.config_path) as f:
-                for line in f:
+                for line_num, line in enumerate(f, 1):
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
@@ -304,20 +311,65 @@ class FanCurve:
                         temp_str, level = line.split(":", 1)
                         temp = int(temp_str.strip())
                         level = level.strip()
+
+                        # Validate temperature range (0-120°C)
+                        if not (0 <= temp <= 120):
+                            print(f"{Colors.YELLOW}Warning: Invalid temperature {temp}°C on line {line_num}, skipping{Colors.RESET}", file=sys.stderr)
+                            continue
+
+                        # Validate fan level
+                        valid_levels = list(FAN_LEVELS.keys())
+                        if level not in valid_levels:
+                            print(f"{Colors.YELLOW}Warning: Invalid fan level '{level}' on line {line_num}, skipping{Colors.RESET}", file=sys.stderr)
+                            continue
+
                         self.curve.append((temp, level))
 
                     elif line.startswith("HYSTERESIS="):
-                        self.hysteresis = int(line.split("=", 1)[1])
+                        hyst = int(line.split("=", 1)[1])
+                        # Validate hysteresis (0-20°C)
+                        if 0 <= hyst <= 20:
+                            self.hysteresis = hyst
+                        else:
+                            print(f"{Colors.YELLOW}Warning: Invalid HYSTERESIS value {hyst}, using default {self.hysteresis}{Colors.RESET}", file=sys.stderr)
 
                     elif line.startswith("INTERVAL="):
-                        self.interval = float(line.split("=", 1)[1])
+                        interval = float(line.split("=", 1)[1])
+                        # Validate interval (0.5-60 seconds)
+                        if 0.5 <= interval <= 60:
+                            self.interval = interval
+                        else:
+                            print(f"{Colors.YELLOW}Warning: Invalid INTERVAL value {interval}, using default {self.interval}{Colors.RESET}", file=sys.stderr)
 
             # Sort curve by temperature
             self.curve.sort(key=lambda x: x[0])
 
+            # Validate we have at least one curve point
+            if not self.curve:
+                print(f"{Colors.RED}Error: No valid fan curve points found in config{Colors.RESET}", file=sys.stderr)
+                print(f"{Colors.YELLOW}Using default fan curve{Colors.RESET}", file=sys.stderr)
+                self.curve = [
+                    (40, "auto"),
+                    (50, "2"),
+                    (55, "3"),
+                    (60, "4"),
+                    (65, "5"),
+                    (70, "6"),
+                    (75, "7"),
+                ]
+
         except Exception as e:
             print(f"{Colors.RED}Error loading config: {e}{Colors.RESET}", file=sys.stderr)
             print(f"{Colors.YELLOW}Using default fan curve{Colors.RESET}", file=sys.stderr)
+            self.curve = [
+                (40, "auto"),
+                (50, "2"),
+                (55, "3"),
+                (60, "4"),
+                (65, "5"),
+                (70, "6"),
+                (75, "7"),
+            ]
 
     def get_fan_level(self, temp: int, current_level: str = None) -> str:
         """Get fan level for given temperature with hysteresis"""
