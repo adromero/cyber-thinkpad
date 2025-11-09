@@ -1,0 +1,522 @@
+#!/usr/bin/env python3
+"""
+fanctl - ThinkPad Fan Control
+Control fan speed for better cooling or quieter operation
+"""
+
+import sys
+import time
+import argparse
+import signal
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
+
+from colors import Colors
+from sysmon import ThinkPadMonitor
+
+FAN_CONTROL_FILE = "/proc/acpi/ibm/fan"
+
+# Fan level descriptions
+FAN_LEVELS = {
+    "0": "Fan off (use with extreme caution!)",
+    "1": "Very low speed (~2000 RPM)",
+    "2": "Low speed (~2500 RPM)",
+    "3": "Medium-low speed (~3000 RPM)",
+    "4": "Medium speed (~3500 RPM)",
+    "5": "Medium-high speed (~4000 RPM)",
+    "6": "High speed (~4500 RPM)",
+    "7": "Maximum speed (~5000 RPM)",
+    "auto": "Automatic control (recommended)",
+    "full-speed": "Full blast (emergency cooling)",
+}
+
+
+class FanController:
+    """ThinkPad fan controller"""
+
+    def __init__(self):
+        self.fan_file = Path(FAN_CONTROL_FILE)
+        if not self.fan_file.exists():
+            raise RuntimeError("ThinkPad ACPI fan interface not found. Is this a ThinkPad?")
+
+    def get_status(self) -> dict:
+        """Get current fan status"""
+        try:
+            content = self.fan_file.read_text()
+            status = {}
+
+            for line in content.strip().split("\n"):
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    status[key.strip()] = value.strip()
+
+            return status
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to read fan status: {e}")
+
+    def set_level(self, level: str) -> bool:
+        """Set fan level"""
+        if level not in FAN_LEVELS:
+            raise ValueError(f"Invalid fan level: {level}")
+
+        try:
+            # Write to fan control file
+            with open(self.fan_file, "w") as f:
+                f.write(f"level {level}\n")
+            return True
+
+        except PermissionError:
+            print(f"{Colors.RED}Permission denied. Run with sudo:{Colors.RESET}")
+            print(f"  {Colors.CYAN}sudo fanctl set {level}{Colors.RESET}")
+            return False
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to set fan level: {e}")
+
+    def is_control_enabled(self) -> bool:
+        """Check if fan control is enabled in kernel module"""
+        try:
+            param_file = Path("/sys/module/thinkpad_acpi/parameters/fan_control")
+            if param_file.exists():
+                return param_file.read_text().strip() == "Y"
+            return False
+        except:
+            return False
+
+
+def print_header(text: str):
+    """Print cyberpunk-styled header"""
+    print(f"\n{Colors.BOLD}{Colors.MAGENTA}╔══{'═' * len(text)}══╗{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.MAGENTA}║  {Colors.CYAN}{text}{Colors.MAGENTA}  ║{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.MAGENTA}╚══{'═' * len(text)}══╝{Colors.RESET}\n")
+
+
+def speed_bar(speed: int, max_speed: int = 5000, width: int = 20) -> str:
+    """Create speed bar visualization"""
+    if speed == 0:
+        return f"[{Colors.DIM}{'░' * width}{Colors.RESET}] {Colors.DIM}   0 RPM{Colors.RESET}"
+
+    percentage = min(speed / max_speed * 100, 100)
+    filled = int(percentage / 100 * width)
+    empty = width - filled
+
+    # Color based on speed
+    if percentage >= 80:
+        color = Colors.RED
+    elif percentage >= 60:
+        color = Colors.ORANGE
+    elif percentage >= 40:
+        color = Colors.YELLOW
+    else:
+        color = Colors.CYAN
+
+    bar = f"{color}{'▓' * filled}{Colors.DIM}{'░' * empty}{Colors.RESET}"
+    return f"[{bar}] {color}{speed:4d} RPM{Colors.RESET}"
+
+
+def cmd_status(fan: FanController, args):
+    """Display fan status"""
+    print_header("FAN STATUS")
+
+    status = fan.get_status()
+
+    # Check if control is enabled
+    if not fan.is_control_enabled():
+        print(f"{Colors.YELLOW}⚠ Fan control is DISABLED in kernel module{Colors.RESET}")
+        print(f"\n{Colors.DIM}To enable fan control:{Colors.RESET}")
+        print(f"  1. Create /etc/modprobe.d/thinkpad_acpi.conf with:")
+        print(f"     {Colors.CYAN}options thinkpad_acpi fan_control=1{Colors.RESET}")
+        print(f"  2. Reload the module: {Colors.CYAN}sudo modprobe -r thinkpad_acpi && sudo modprobe thinkpad_acpi{Colors.RESET}")
+        print(f"     {Colors.DIM}OR reboot your system{Colors.RESET}\n")
+
+    # Display status
+    fan_status = status.get("status", "unknown")
+    fan_speed = status.get("speed", "0")
+    fan_level = status.get("level", "unknown")
+
+    # Status
+    status_color = Colors.GREEN if fan_status == "enabled" else Colors.RED
+    print(f"{Colors.PURPLE}Status:{Colors.RESET}     {status_color}{fan_status}{Colors.RESET}")
+
+    # Level
+    level_color = {
+        "auto": Colors.CYAN,
+        "full-speed": Colors.RED,
+        "disengaged": Colors.RED,
+    }.get(fan_level, Colors.YELLOW)
+
+    level_desc = FAN_LEVELS.get(fan_level, "")
+    print(f"{Colors.PURPLE}Level:{Colors.RESET}      {level_color}{fan_level}{Colors.RESET} {Colors.DIM}{level_desc}{Colors.RESET}")
+
+    # Speed
+    try:
+        speed_rpm = int(fan_speed)
+        print(f"{Colors.PURPLE}Speed:{Colors.RESET}      {speed_bar(speed_rpm)}")
+    except ValueError:
+        print(f"{Colors.PURPLE}Speed:{Colors.RESET}      {Colors.DIM}{fan_speed}{Colors.RESET}")
+
+    print()
+
+    return 0
+
+
+def cmd_set(fan: FanController, args):
+    """Set fan level"""
+    level = args.level
+
+    if not fan.is_control_enabled():
+        print(f"{Colors.RED}Fan control is not enabled in kernel module!{Colors.RESET}")
+        print(f"{Colors.DIM}Run 'fanctl status' for setup instructions{Colors.RESET}")
+        return 1
+
+    print(f"{Colors.CYAN}Setting fan to level: {Colors.BOLD}{level}{Colors.RESET}")
+
+    if level not in ["auto", "full-speed"]:
+        desc = FAN_LEVELS.get(level, "")
+        print(f"{Colors.DIM}{desc}{Colors.RESET}")
+
+    if level in ["0", "full-speed", "disengaged"]:
+        print(f"\n{Colors.YELLOW}⚠ WARNING: This level can be dangerous!{Colors.RESET}")
+        if level == "0":
+            print(f"{Colors.RED}Level 0 turns the fan OFF - use only for testing!{Colors.RESET}")
+        else:
+            print(f"{Colors.RED}Full-speed mode bypasses thermal protection!{Colors.RESET}")
+        print()
+
+    if fan.set_level(level):
+        print(f"{Colors.GREEN}✓ Fan level set successfully{Colors.RESET}")
+
+        # Show new status
+        time.sleep(0.5)
+        status = fan.get_status()
+        new_level = status.get("level", "unknown")
+        new_speed = status.get("speed", "0")
+
+        print(f"\n{Colors.PURPLE}New level:{Colors.RESET} {Colors.CYAN}{new_level}{Colors.RESET}")
+        try:
+            speed_rpm = int(new_speed)
+            if speed_rpm > 0:
+                print(f"{Colors.PURPLE}New speed:{Colors.RESET} {Colors.CYAN}{speed_rpm} RPM{Colors.RESET}")
+        except ValueError:
+            pass
+
+        return 0
+    else:
+        return 1
+
+
+def cmd_watch(fan: FanController, args):
+    """Watch fan status in real-time"""
+    interval = args.interval
+
+    try:
+        while True:
+            # Clear screen
+            print("\033[2J\033[H", end="")
+
+            cmd_status(fan, args)
+
+            print(f"\n{Colors.DIM}Refreshing every {interval}s... (Press Ctrl+C to exit){Colors.RESET}")
+            time.sleep(interval)
+
+    except KeyboardInterrupt:
+        print(f"\n{Colors.CYAN}Monitoring stopped{Colors.RESET}")
+        return 0
+
+
+def cmd_list(fan: FanController, args):
+    """List available fan levels"""
+    print_header("AVAILABLE FAN LEVELS")
+
+    for level, desc in FAN_LEVELS.items():
+        # Color code based on level
+        if level == "auto":
+            color = Colors.GREEN
+            marker = "●"
+        elif level == "full-speed" or level == "0":
+            color = Colors.RED
+            marker = "!"
+        elif level.isdigit() and int(level) >= 6:
+            color = Colors.ORANGE
+            marker = "▲"
+        else:
+            color = Colors.CYAN
+            marker = "○"
+
+        print(f"{color}{marker} {level:12s}{Colors.RESET} {Colors.DIM}{desc}{Colors.RESET}")
+
+    print(f"\n{Colors.DIM}Usage: fanctl set <level>{Colors.RESET}")
+    print(f"{Colors.DIM}Example: sudo fanctl set 5{Colors.RESET}")
+    print()
+
+
+class FanCurve:
+    """Fan curve manager"""
+
+    def __init__(self, config_path: str = None):
+        if config_path is None:
+            # Try to find config in standard locations
+            possible_paths = [
+                Path(__file__).parent.parent.parent / "rice" / "system-configs" / "fancurve.conf",
+                Path("/etc/thinkpad-cyberpunk/fancurve.conf"),
+                Path.home() / ".config" / "thinkpad-cyberpunk" / "fancurve.conf",
+            ]
+            for path in possible_paths:
+                if path.exists():
+                    config_path = str(path)
+                    break
+            else:
+                # Use default if no config found
+                config_path = str(possible_paths[0])
+
+        self.config_path = Path(config_path)
+        self.curve = []
+        self.hysteresis = 3
+        self.interval = 2
+        self.load_config()
+
+    def load_config(self):
+        """Load fan curve configuration"""
+        if not self.config_path.exists():
+            # Use default curve
+            self.curve = [
+                (40, "auto"),
+                (50, "2"),
+                (55, "3"),
+                (60, "4"),
+                (65, "5"),
+                (70, "6"),
+                (75, "7"),
+            ]
+            return
+
+        try:
+            with open(self.config_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+
+                    if ":" in line and not line.startswith("TEMP_SOURCE"):
+                        # Temperature:Level pair
+                        temp_str, level = line.split(":", 1)
+                        temp = int(temp_str.strip())
+                        level = level.strip()
+                        self.curve.append((temp, level))
+
+                    elif line.startswith("HYSTERESIS="):
+                        self.hysteresis = int(line.split("=", 1)[1])
+
+                    elif line.startswith("INTERVAL="):
+                        self.interval = float(line.split("=", 1)[1])
+
+            # Sort curve by temperature
+            self.curve.sort(key=lambda x: x[0])
+
+        except Exception as e:
+            print(f"{Colors.RED}Error loading config: {e}{Colors.RESET}", file=sys.stderr)
+            print(f"{Colors.YELLOW}Using default fan curve{Colors.RESET}", file=sys.stderr)
+
+    def get_fan_level(self, temp: int, current_level: str = None) -> str:
+        """Get fan level for given temperature with hysteresis"""
+        if not self.curve:
+            return "auto"
+
+        # Find the highest threshold that's been exceeded
+        target_level = self.curve[0][1]  # Default to lowest level
+
+        for threshold_temp, level in self.curve:
+            if temp >= threshold_temp:
+                target_level = level
+            else:
+                break
+
+        # Apply hysteresis if we have a current level
+        if current_level and current_level != target_level:
+            # Find current level index
+            current_idx = None
+            target_idx = None
+
+            for idx, (t, l) in enumerate(self.curve):
+                if l == current_level:
+                    current_idx = idx
+                if l == target_level:
+                    target_idx = idx
+
+            # If we're trying to decrease fan speed, apply hysteresis
+            if current_idx is not None and target_idx is not None and target_idx < current_idx:
+                # Check if temp has dropped enough below the current threshold
+                current_threshold = self.curve[current_idx][0]
+                if temp > (current_threshold - self.hysteresis):
+                    # Not cool enough yet, keep current level
+                    return current_level
+
+        return target_level
+
+
+def cmd_daemon(fan: FanController, args):
+    """Run fan control daemon with automatic temperature-based fan curve"""
+
+    if not fan.is_control_enabled():
+        print(f"{Colors.RED}Fan control is not enabled in kernel module!{Colors.RESET}")
+        print(f"{Colors.DIM}Run 'fanctl status' for setup instructions{Colors.RESET}")
+        return 1
+
+    # Load fan curve
+    curve = FanCurve(args.config if hasattr(args, 'config') else None)
+
+    if not curve.config_path.exists():
+        print(f"{Colors.YELLOW}Fan curve config not found at: {curve.config_path}{Colors.RESET}")
+        print(f"{Colors.CYAN}Using default balanced curve{Colors.RESET}")
+    else:
+        print(f"{Colors.GREEN}Loaded fan curve from: {curve.config_path}{Colors.RESET}")
+
+    print(f"{Colors.CYAN}Fan curve points:{Colors.RESET}")
+    for temp, level in curve.curve:
+        print(f"  {temp}°C → Level {level}")
+
+    print(f"\n{Colors.PURPLE}Hysteresis:{Colors.RESET} {curve.hysteresis}°C")
+    print(f"{Colors.PURPLE}Interval:{Colors.RESET}   {curve.interval}s")
+    print()
+
+    # Initialize monitor
+    monitor = ThinkPadMonitor()
+    current_level = None
+    running = True
+
+    def signal_handler(signum, frame):
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    print(f"{Colors.GREEN}Fan daemon started{Colors.RESET}")
+    print(f"{Colors.DIM}Press Ctrl+C to stop{Colors.RESET}\n")
+
+    try:
+        while running:
+            # Get current temperature
+            zones = monitor.get_thermal_zones()
+            if zones:
+                max_temp = max((z.temp for z in zones if z.temp > 0), default=0)
+            else:
+                max_temp = 0
+
+            # Determine fan level
+            target_level = curve.get_fan_level(max_temp, current_level)
+
+            # Set fan level if changed
+            if target_level != current_level:
+                try:
+                    fan.set_level(target_level)
+                    current_level = target_level
+
+                    temp_color = Colors.RED if max_temp >= 70 else Colors.ORANGE if max_temp >= 60 else Colors.CYAN
+                    level_color = Colors.RED if target_level == "7" else Colors.ORANGE if target_level in ["5", "6"] else Colors.CYAN
+
+                    print(f"{temp_color}{max_temp:3d}°C{Colors.RESET} → {level_color}Level {target_level}{Colors.RESET}")
+
+                except PermissionError:
+                    print(f"{Colors.RED}Permission denied. Run as root (sudo){Colors.RESET}")
+                    return 1
+
+            # Show status in args.verbose mode
+            elif hasattr(args, 'verbose') and args.verbose:
+                temp_color = Colors.RED if max_temp >= 70 else Colors.ORANGE if max_temp >= 60 else Colors.CYAN
+                print(f"{temp_color}{max_temp:3d}°C{Colors.RESET} Level {current_level}", end="\r", flush=True)
+
+            time.sleep(curve.interval)
+
+    except KeyboardInterrupt:
+        pass
+
+    print(f"\n\n{Colors.CYAN}Fan daemon stopped{Colors.RESET}")
+    print(f"{Colors.YELLOW}Returning fan to automatic control...{Colors.RESET}")
+
+    try:
+        fan.set_level("auto")
+        print(f"{Colors.GREEN}✓ Fan set to auto mode{Colors.RESET}")
+    except:
+        print(f"{Colors.RED}Failed to reset fan to auto mode{Colors.RESET}")
+
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ThinkPad Fan Control - Cyberpunk Edition",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  fanctl status              Show current fan status
+  sudo fanctl set auto       Set fan to automatic mode (recommended)
+  sudo fanctl set 5          Set fan to level 5 (medium-high speed)
+  sudo fanctl set full-speed Maximum cooling (emergency use)
+  fanctl watch               Watch fan status in real-time
+  fanctl list                List all available fan levels
+  sudo fanctl daemon         Run automatic fan curve daemon
+  sudo fanctl daemon -v      Run daemon with verbose output
+
+The daemon mode automatically adjusts fan speed based on temperature using
+a configurable fan curve. This is the recommended way to keep your laptop
+cool while minimizing fan noise.
+
+WARNING: Incorrect fan settings can damage your hardware. Always monitor
+temperatures when using manual fan control. Use 'auto' mode for normal use.
+        """,
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
+
+    # Status command
+    subparsers.add_parser("status", help="Show fan status")
+
+    # Set command
+    set_parser = subparsers.add_parser("set", help="Set fan level (requires root)")
+    set_parser.add_argument("level", choices=list(FAN_LEVELS.keys()),
+                           help="Fan level to set")
+
+    # Watch command
+    watch_parser = subparsers.add_parser("watch", help="Watch fan status in real-time")
+    watch_parser.add_argument("-i", "--interval", type=float, default=2.0,
+                             help="Update interval in seconds (default: 2.0)")
+
+    # List command
+    subparsers.add_parser("list", help="List available fan levels")
+
+    # Daemon command
+    daemon_parser = subparsers.add_parser("daemon", help="Run automatic fan curve daemon (requires root)")
+    daemon_parser.add_argument("-c", "--config", type=str,
+                              help="Path to fan curve configuration file")
+    daemon_parser.add_argument("-v", "--verbose", action="store_true",
+                              help="Show temperature updates even when fan level doesn't change")
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return 1
+
+    try:
+        fan = FanController()
+
+        commands = {
+            "status": cmd_status,
+            "set": cmd_set,
+            "watch": cmd_watch,
+            "list": cmd_list,
+            "daemon": cmd_daemon,
+        }
+
+        return commands[args.command](fan, args)
+
+    except Exception as e:
+        print(f"{Colors.RED}Error: {e}{Colors.RESET}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

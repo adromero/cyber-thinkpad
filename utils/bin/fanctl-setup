@@ -1,0 +1,123 @@
+#!/bin/bash
+# ThinkPad Fan Control Setup Script
+# Enables fan control and optionally installs the fan curve daemon
+
+set -euo pipefail
+
+CYAN='\033[38;5;51m'
+MAGENTA='\033[38;5;201m'
+PURPLE='\033[38;5;141m'
+GREEN='\033[38;5;46m'
+RED='\033[38;5;196m'
+YELLOW='\033[38;5;226m'
+DIM='\033[2m'
+RESET='\033[0m'
+
+# Determine project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+echo -e "${MAGENTA}"
+echo "╔═══════════════════════════════════════════════════════════╗"
+echo "║  ThinkPad Fan Control Setup                               ║"
+echo "╚═══════════════════════════════════════════════════════════╝"
+echo -e "${RESET}"
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}This script must be run as root (use sudo)${RESET}"
+    exit 1
+fi
+
+# Step 1: Enable fan control in kernel module
+echo -e "${PURPLE}Step 1: Enabling fan control in kernel module...${RESET}"
+
+if [ ! -f /etc/modprobe.d/thinkpad_acpi.conf ]; then
+    cp "$PROJECT_ROOT/rice/system-configs/thinkpad_acpi.conf" /etc/modprobe.d/
+    echo -e "${GREEN}✓ Installed thinkpad_acpi.conf${RESET}"
+else
+    echo -e "${CYAN}✓ thinkpad_acpi.conf already exists${RESET}"
+fi
+
+# Reload module
+echo -e "${PURPLE}Reloading thinkpad_acpi kernel module...${RESET}"
+if modprobe -r thinkpad_acpi 2>/dev/null && modprobe thinkpad_acpi; then
+    echo -e "${GREEN}✓ Module reloaded${RESET}"
+else
+    echo -e "${YELLOW}⚠ Could not reload module. Please reboot your system.${RESET}"
+fi
+
+echo ""
+
+# Step 2: Ask about daemon installation
+echo -e "${CYAN}Do you want to install the automatic fan curve daemon?${RESET}"
+echo -e "${DIM}The daemon will automatically adjust fan speed based on temperature.${RESET}"
+echo ""
+read -p "Install daemon as a systemd service? [Y/n] " -n 1 -r
+echo
+echo ""
+
+if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+    echo -e "${PURPLE}Step 2: Installing fan control daemon...${RESET}"
+
+    # Copy config to system location
+    mkdir -p /etc/thinkpad-cyberpunk
+    if [ ! -f /etc/thinkpad-cyberpunk/fancurve.conf ]; then
+        cp "$PROJECT_ROOT/rice/system-configs/fancurve.conf" /etc/thinkpad-cyberpunk/
+        echo -e "${GREEN}✓ Installed fan curve config${RESET}"
+    else
+        echo -e "${CYAN}✓ Fan curve config already exists${RESET}"
+    fi
+
+    # Update systemd service with correct path
+    TEMP_SERVICE=$(mktemp)
+    sed "s|/home/sulaco/Projects/thinkpad-cyberpunk|$PROJECT_ROOT|g" \
+        "$PROJECT_ROOT/rice/system-configs/fancontrol.service" > "$TEMP_SERVICE"
+
+    cp "$TEMP_SERVICE" /etc/systemd/system/fancontrol.service
+    rm "$TEMP_SERVICE"
+    echo -e "${GREEN}✓ Installed systemd service${RESET}"
+
+    # Reload systemd and enable service
+    systemctl daemon-reload
+    systemctl enable fancontrol.service
+    echo -e "${GREEN}✓ Service enabled${RESET}"
+
+    # Ask to start now
+    echo ""
+    read -p "Start the fan daemon now? [Y/n] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        systemctl start fancontrol.service
+        sleep 1
+        if systemctl is-active --quiet fancontrol.service; then
+            echo -e "${GREEN}✓ Fan daemon started${RESET}"
+        else
+            echo -e "${RED}✗ Failed to start daemon. Check: journalctl -u fancontrol${RESET}"
+        fi
+    fi
+
+    echo ""
+    echo -e "${GREEN}Fan daemon installed!${RESET}"
+    echo ""
+    echo -e "${CYAN}Useful commands:${RESET}"
+    echo -e "  ${PURPLE}systemctl status fancontrol${RESET}   - Check daemon status"
+    echo -e "  ${PURPLE}systemctl stop fancontrol${RESET}     - Stop daemon"
+    echo -e "  ${PURPLE}systemctl restart fancontrol${RESET}  - Restart daemon"
+    echo -e "  ${PURPLE}journalctl -u fancontrol -f${RESET}   - View daemon logs"
+    echo ""
+    echo -e "${CYAN}Configuration:${RESET}"
+    echo -e "  ${PURPLE}/etc/thinkpad-cyberpunk/fancurve.conf${RESET}"
+    echo -e "  Edit this file to customize your fan curve"
+    echo -e "  Then restart the daemon: ${PURPLE}systemctl restart fancontrol${RESET}"
+fi
+
+echo ""
+echo -e "${GREEN}Setup complete!${RESET}"
+echo ""
+echo -e "${CYAN}Test fan control:${RESET}"
+echo -e "  ${PURPLE}fanctl status${RESET}        - Check fan status"
+echo -e "  ${PURPLE}fanctl list${RESET}          - List fan levels"
+echo -e "  ${PURPLE}sudo fanctl set 5${RESET}    - Manually set fan level"
+echo -e "  ${PURPLE}sudo fanctl daemon${RESET}   - Run daemon in foreground (for testing)"
+echo ""

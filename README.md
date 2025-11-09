@@ -20,6 +20,7 @@ Battery management, thermal monitoring, power profiles, and cyberpunk-themed das
 - `batctl` - Battery management and charging thresholds
 - `thermctl` - Thermal monitoring
 - `powerctl` - Power profile management
+- `fanctl` - Fan speed control (requires setup)
 - `cyberdash` - Real-time monitoring dashboard
 - `cyberbar` - Status bar widgets
 - `cyberkeys` - Interactive keybindings reference
@@ -85,9 +86,11 @@ source ~/.bashrc  # or source ~/.zshrc
 Then try the tools:
 
 ```bash
-batctl status     # Check battery
-thermctl status   # Check thermals
-cyberdash         # Launch dashboard
+batctl status        # Check battery
+thermctl status      # Check thermals
+fanctl status        # Check fan status
+sudo fanctl-setup    # Enable automatic fan curve (recommended!)
+cyberdash            # Launch dashboard
 ```
 
 ## Features
@@ -95,6 +98,8 @@ cyberdash         # Launch dashboard
 - 🔋 Battery health monitoring and charging threshold management
 - 🔥 Real-time thermal monitoring with color-coded temperatures
 - ⚡ Power profile switching and CPU governor control
+- 🌬️ **Automatic fan curve daemon** - Keeps temps safe with intelligent fan control
+- 🎯 Manual fan speed control for fine-tuning cooling or noise levels
 - 💻 Beautiful cyberpunk-themed dashboard
 - 📊 Status bar widgets for i3/polybar/waybar
 - ⌨️ Interactive keybindings reference with one-click access and execution
