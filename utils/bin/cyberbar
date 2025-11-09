@@ -161,6 +161,60 @@ def format_power_detailed(monitor: ThinkPadMonitor) -> str:
     return " ".join(parts) if parts else "?"
 
 
+def get_fan_status() -> dict:
+    """Get fan status from ThinkPad ACPI interface"""
+    try:
+        with open("/proc/acpi/ibm/fan", "r") as f:
+            content = f.read()
+            status = {}
+            for line in content.strip().split("\n"):
+                if ":" in line and not line.startswith("commands"):
+                    key, value = line.split(":", 1)
+                    status[key.strip()] = value.strip()
+            return status
+    except:
+        return {}
+
+
+def get_fan_icon(speed: int) -> str:
+    """Get fan icon based on speed"""
+    if speed == 0:
+        return "○"
+    elif speed < 2000:
+        return "◔"
+    elif speed < 3000:
+        return "◑"
+    elif speed < 4000:
+        return "◕"
+    else:
+        return "●"
+
+
+def format_fan_simple(monitor: ThinkPadMonitor) -> str:
+    """Simple fan status"""
+    fan_status = get_fan_status()
+    if not fan_status:
+        return "NO FAN"
+
+    speed = int(fan_status.get("speed", 0))
+    icon = get_fan_icon(speed)
+
+    return f"{icon} {speed} RPM"
+
+
+def format_fan_detailed(monitor: ThinkPadMonitor) -> str:
+    """Detailed fan status"""
+    fan_status = get_fan_status()
+    if not fan_status:
+        return "NO FAN"
+
+    speed = int(fan_status.get("speed", 0))
+    level = fan_status.get("level", "?")
+    icon = get_fan_icon(speed)
+
+    return f"{icon} {speed} RPM [L{level}]"
+
+
 def format_system_simple(monitor: ThinkPadMonitor) -> str:
     """Simple system status"""
     load = monitor.get_load_average()
@@ -246,7 +300,7 @@ def main():
     parser.add_argument(
         "widget",
         nargs="?",
-        choices=["battery", "thermal", "power", "system", "all"],
+        choices=["battery", "thermal", "power", "fan", "system", "all"],
         default="all",
         help="Widget to display (default: all)"
     )
@@ -271,6 +325,7 @@ def main():
         "battery": (format_battery_simple, format_battery_detailed),
         "thermal": (format_thermal_simple, format_thermal_detailed),
         "power": (format_power_simple, format_power_detailed),
+        "fan": (format_fan_simple, format_fan_detailed),
         "system": (format_system_simple, format_system_detailed),
         "all": (format_all_simple, format_all_detailed),
     }
