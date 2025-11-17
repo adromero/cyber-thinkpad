@@ -18,10 +18,13 @@ while pgrep -u $UID -x polybar >/dev/null; do
     if [ $COUNTER -ge $TIMEOUT ]; then
         echo "Warning: Timeout waiting for polybar to terminate, forcing kill..."
         killall -9 polybar 2>/dev/null
-        sleep 1
+        sleep 2
         break
     fi
 done
+
+# Extra safety: ensure no polybar instances remain
+sleep 0.5
 
 # Launch polybar
 polybar thinkpad-cyber 2>&1 | tee -a /tmp/polybar.log & disown

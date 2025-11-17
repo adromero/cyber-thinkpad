@@ -43,6 +43,7 @@ KEYBINDINGS = {
         ("Super+1-0", "Switch Workspace 1-10"),
         ("Super+Shift+1-0", "Move to Workspace"),
         ("Super+Ctrl+1-0", "Auto-Launch Workspace"),
+        ("Super+Ctrl+A", "Launch All Workspaces"),
     ],
 
     "ThinkPad Tools": [
