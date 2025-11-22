@@ -20,10 +20,16 @@ KEYBINDINGS = {
     ],
 
     "Window Management": [
+        ("Alt+Tab", "Window Switcher Menu"),
         ("Super+H/J/K/L", "Focus Left/Down/Up/Right"),
         ("Super+Arrows", "Focus Direction"),
         ("Super+Shift+H/J/K/L", "Move Window"),
         ("Super+Shift+Arrows", "Move Window"),
+        ("Super+Ctrl+Left", "Snap Left (Show Bar)"),
+        ("Super+Ctrl+Right", "Snap Right (Show Bar)"),
+        ("Super+Ctrl+Shift+Left", "Snap Left (Full Screen)"),
+        ("Super+Ctrl+Shift+Right", "Snap Right (Full Screen)"),
+        ("Super+Shift+S", "Interactive Window Snap"),
         ("Super+F", "Fullscreen Toggle"),
         ("Super+Space", "Toggle Floating"),
         ("Super+Shift+Space", "Float/Tile Toggle"),

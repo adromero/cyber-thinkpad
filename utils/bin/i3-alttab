@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""
+i3-alttab - Windows-style Alt+Tab window switcher for i3
+Hold Alt and press Tab to cycle through windows
+"""
+
+import subprocess
+import sys
+import json
+import os
+from pathlib import Path
+
+def get_all_windows():
+    """Get all visible windows across all workspaces"""
+    result = subprocess.run(
+        ["i3-msg", "-t", "get_tree"],
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    tree = json.loads(result.stdout)
+
+    windows = []
+    focused_id = None
+
+    def traverse(node):
+        nonlocal focused_id
+
+        # If this is a window
+        if node.get('window'):
+            window_id = node.get('window')
+            window_title = node.get('name', 'Untitled')
+            window_class = node.get('window_properties', {}).get('class', 'Unknown')
+            workspace = node.get('workspace')
+
+            # Skip special windows
+            if window_class in ['i3bar', 'i3-frame']:
+                return
+
+            windows.append({
+                'id': window_id,
+                'title': window_title,
+                'class': window_class,
+                'focused': node.get('focused', False),
+            })
+
+            if node.get('focused'):
+                focused_id = window_id
+
+        # Recurse through children
+        for child in node.get('nodes', []) + node.get('floating_nodes', []):
+            traverse(child)
+
+    traverse(tree)
+    return windows, focused_id
+
+
+def focus_next_window():
+    """Focus the next window in the list"""
+    windows, focused_id = get_all_windows()
+
+    if len(windows) <= 1:
+        return
+
+    # Find current focused window index
+    current_idx = 0
+    for i, window in enumerate(windows):
+        if window['id'] == focused_id:
+            current_idx = i
+            break
+
+    # Get next window (wrap around)
+    next_idx = (current_idx + 1) % len(windows)
+    next_window = windows[next_idx]
+
+    # Focus it
+    subprocess.run(
+        ["i3-msg", f"[id={next_window['id']}] focus"],
+        capture_output=True,
+        check=False
+    )
+
+
+def focus_prev_window():
+    """Focus the previous window in the list"""
+    windows, focused_id = get_all_windows()
+
+    if len(windows) <= 1:
+        return
+
+    # Find current focused window index
+    current_idx = 0
+    for i, window in enumerate(windows):
+        if window['id'] == focused_id:
+            current_idx = i
+            break
+
+    # Get previous window (wrap around)
+    prev_idx = (current_idx - 1) % len(windows)
+    prev_window = windows[prev_idx]
+
+    # Focus it
+    subprocess.run(
+        ["i3-msg", f"[id={prev_window['id']}] focus"],
+        capture_output=True,
+        check=False
+    )
+
+
+if __name__ == "__main__":
+    direction = sys.argv[1] if len(sys.argv) > 1 else "next"
+
+    if direction == "prev":
+        focus_prev_window()
+    else:
+        focus_next_window()

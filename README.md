@@ -27,6 +27,8 @@ Battery management, thermal monitoring, power profiles, and cyberpunk-themed das
 - `cyberdash` - Real-time monitoring dashboard
 - `cyberbar` - Status bar widgets
 - `cyberkeys` - Interactive keybindings reference
+- `winsnap` - Interactive window layout manager
+- `i3-alttab` - Windows-style Alt+Tab window switcher
 - `workspacelaunch` - Auto-launch apps in i3 workspaces
 - `workspaceconfig` - Configure workspace app launchers
 
@@ -106,6 +108,8 @@ cyberdash            # Launch dashboard
 - Beautiful cyberpunk-themed dashboard
 - Status bar widgets for i3/polybar/waybar
 - Interactive keybindings reference with one-click access and execution
+- **Window management tools** - Quick window snapping and interactive layout manager
+- **Alt+Tab window switcher** - Windows-style window cycling with rofi menu
 - Workspace auto-launcher with custom app configurations
 - Complete desktop rice with i3, polybar, rofi, kitty, picom
 - Neon cyberpunk color scheme throughout

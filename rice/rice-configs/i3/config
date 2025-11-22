@@ -47,6 +47,9 @@ bindsym $mod+Down focus down
 bindsym $mod+Up focus up
 bindsym $mod+Right focus right
 
+# Alt+Tab window switching (Windows-style with rofi)
+bindsym Mod1+Tab exec --no-startup-id "rofi -show window -theme $HOME/.config/rofi/cyberpunk.rasi -kb-accept-entry '!Alt-Tab,!Alt+ISO_Left_Tab,Return' -kb-row-down 'Down,Alt+Tab' -kb-row-up 'Up,Alt+ISO_Left_Tab,Alt+Shift+Tab' -me-select-entry '' -me-accept-entry 'MousePrimary'"
+
 # Move focused window
 bindsym $mod+Shift+h move left
 bindsym $mod+Shift+j move down
@@ -75,6 +78,17 @@ bindsym $mod+Shift+space floating toggle
 
 # Change focus between tiling / floating
 bindsym $mod+space focus mode_toggle
+
+# Snap window to left/right half (respecting polybar)
+bindsym $mod+Ctrl+Left floating enable; resize set 50 ppt 100 ppt; move position 0 28
+bindsym $mod+Ctrl+Right floating enable; resize set 50 ppt 100 ppt; move position 50 ppt 28
+
+# Snap window to left/right half (full screen, covers polybar)
+bindsym $mod+Ctrl+Shift+Left floating enable; resize set 50 ppt 100 ppt; move position 0 0
+bindsym $mod+Ctrl+Shift+Right floating enable; resize set 50 ppt 100 ppt; move position 50 ppt 0
+
+# Interactive window layout manager
+bindsym $mod+Shift+s exec kitty --class floating-terminal -e $cyber_tools/winsnap
 
 # Focus parent container
 bindsym $mod+a focus parent

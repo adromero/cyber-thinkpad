@@ -103,6 +103,16 @@ thermctl watch                   # Keep an eye on temps
 
 ## i3 Keyboard Shortcuts
 
+### Window Management
+- `Alt+Tab` - Window switcher menu (hold Alt, press Tab to cycle)
+- `Super+Ctrl+Left` - Snap window to left half (show polybar)
+- `Super+Ctrl+Right` - Snap window to right half (show polybar)
+- `Super+Ctrl+Shift+Left` - Snap window to left half (full screen)
+- `Super+Ctrl+Shift+Right` - Snap window to right half (full screen)
+- `Super+Shift+S` - Interactive window layout manager
+- `Super+F` - Toggle fullscreen
+- `Super+Space` - Toggle floating/tiling
+
 ### System Utilities
 - `Super+Grave (`)` - Open Cyberdash system monitor
 - `Super+B` - Battery status
@@ -110,6 +120,7 @@ thermctl watch                   # Keep an eye on temps
 - `Super+P` - Power profile status
 - `Super+Shift+P` - Power profile quick switcher
 - `Super+Shift+W` - Workspace configurator
+- `Super` (alone) - Show all keybindings
 
 ### Workspace Auto-Launch
 - `Super+Ctrl+1` - Launch Terminal workspace

@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""
+winsnap - Interactive window layout manager
+Allows assigning windows to screen regions one by one
+"""
+
+import json
+import subprocess
+import sys
+
+# Cyberpunk color codes for terminal output
+CYAN = '\033[38;5;51m'
+MAGENTA = '\033[38;5;201m'
+GREEN = '\033[38;5;46m'
+RESET = '\033[0m'
+
+# Define snap regions (position is in pixels from top-left, or percentage)
+# Format: (width%, height%, x_pos, y_pos)
+REGIONS = {
+    "Left Half": "resize set 50 ppt 100 ppt; move position 0 28",
+    "Right Half": "resize set 50 ppt 100 ppt; move position 50 ppt 28",
+    "Top Half": "resize set 100 ppt 50 ppt; move position 0 28",
+    "Bottom Half": "resize set 100 ppt 50 ppt; move position 0 50 ppt",
+    "Top Left Quarter": "resize set 50 ppt 50 ppt; move position 0 28",
+    "Top Right Quarter": "resize set 50 ppt 50 ppt; move position 50 ppt 28",
+    "Bottom Left Quarter": "resize set 50 ppt 50 ppt; move position 0 50 ppt",
+    "Bottom Right Quarter": "resize set 50 ppt 50 ppt; move position 50 ppt 50 ppt",
+    "Left Top (vertical split)": "resize set 50 ppt 50 ppt; move position 0 28",
+    "Left Bottom (vertical split)": "resize set 50 ppt 50 ppt; move position 0 50 ppt",
+    "Right Top (vertical split)": "resize set 50 ppt 50 ppt; move position 50 ppt 28",
+    "Right Bottom (vertical split)": "resize set 50 ppt 50 ppt; move position 50 ppt 50 ppt",
+}
+
+
+def get_current_workspace():
+    """Get the currently focused workspace"""
+    result = subprocess.run(
+        ["i3-msg", "-t", "get_workspaces"],
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    workspaces = json.loads(result.stdout)
+    for ws in workspaces:
+        if ws['focused']:
+            return ws['name']
+    return None
+
+
+def get_windows_in_workspace(workspace_name):
+    """Get all windows in the specified workspace"""
+    result = subprocess.run(
+        ["i3-msg", "-t", "get_tree"],
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    tree = json.loads(result.stdout)
+
+    windows = []
+
+    def traverse(node, in_target_workspace=False):
+        # Check if this is our target workspace
+        if node.get('type') == 'workspace' and node.get('name') == workspace_name:
+            in_target_workspace = True
+
+        # If we're in the target workspace and this is a window
+        if in_target_workspace and node.get('window'):
+            # Only include normal windows, not floating containers
+            window_title = node.get('name', 'Untitled')
+            window_id = node.get('window')
+            window_class = node.get('window_properties', {}).get('class', 'Unknown')
+
+            # Exclude the winsnap window itself
+            if window_class == 'floating-terminal' and 'winsnap' in window_title.lower():
+                return
+
+            windows.append({
+                'id': window_id,
+                'title': window_title,
+                'class': window_class,
+                'focused': node.get('focused', False)
+            })
+
+        # Recurse through children
+        for child in node.get('nodes', []) + node.get('floating_nodes', []):
+            traverse(child, in_target_workspace)
+
+    traverse(tree)
+    return windows
+
+
+def show_rofi_menu(prompt, options):
+    """Show a rofi menu and return the selected option"""
+    rofi_input = "\n".join(options)
+
+    rofi_cmd = [
+        "rofi",
+        "-dmenu",
+        "-i",
+        "-p", prompt,
+        "-theme", str(subprocess.run(
+            ["bash", "-c", "echo $HOME/.config/rofi/cyberpunk.rasi"],
+            capture_output=True,
+            text=True
+        ).stdout.strip()),
+        "-no-custom",
+    ]
+
+    try:
+        result = subprocess.run(
+            rofi_cmd,
+            input=rofi_input,
+            text=True,
+            capture_output=True,
+            check=False
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+        return None
+
+    except FileNotFoundError:
+        print(f"{MAGENTA}Error: rofi not found{RESET}", file=sys.stderr)
+        return None
+
+
+def snap_window(window_id, region_command):
+    """Snap a window to a specific region"""
+    # First, focus the window
+    subprocess.run(
+        ["i3-msg", f"[id={window_id}] focus"],
+        capture_output=True,
+        check=False
+    )
+
+    # Enable floating and apply region
+    full_command = f"[id={window_id}] floating enable; [id={window_id}] {region_command}"
+
+    result = subprocess.run(
+        ["i3-msg", full_command],
+        capture_output=True,
+        text=True,
+        check=False
+    )
+
+    return result.returncode == 0
+
+
+def main():
+    print(f"{CYAN}═══════════════════════════════════════════════")
+    print(f"  WINSNAP - Interactive Window Layout Manager")
+    print(f"═══════════════════════════════════════════════{RESET}\n")
+
+    # Get current workspace
+    workspace = get_current_workspace()
+    if not workspace:
+        print(f"{MAGENTA}Error: Could not determine current workspace{RESET}")
+        return 1
+
+    print(f"{GREEN}Current workspace: {workspace}{RESET}\n")
+
+    # Get all windows
+    windows = get_windows_in_workspace(workspace)
+
+    if not windows:
+        print(f"{MAGENTA}No windows found in current workspace{RESET}")
+        return 0
+
+    print(f"{CYAN}Found {len(windows)} window(s){RESET}\n")
+
+    # Process each window
+    assigned_windows = []
+
+    for window in windows:
+        # Skip if already assigned
+        if window['id'] in assigned_windows:
+            continue
+
+        # Show window info
+        window_label = f"{window['class']}: {window['title'][:50]}"
+
+        # Ask user which region
+        region_name = show_rofi_menu(
+            f"Snap '{window['title'][:30]}...' to:",
+            list(REGIONS.keys()) + ["Skip this window", "Done (leave rest as-is)"]
+        )
+
+        if not region_name:
+            # User cancelled
+            print(f"\n{MAGENTA}Cancelled{RESET}")
+            return 0
+
+        if region_name == "Done (leave rest as-is)":
+            print(f"\n{GREEN}Layout complete!{RESET}")
+            return 0
+
+        if region_name == "Skip this window":
+            print(f"{CYAN}Skipping: {window_label}{RESET}")
+            continue
+
+        # Apply the snap
+        if region_name in REGIONS:
+            print(f"{GREEN}Snapping {window_label} to {region_name}...{RESET}")
+            success = snap_window(window['id'], REGIONS[region_name])
+
+            if success:
+                assigned_windows.append(window['id'])
+                print(f"{GREEN}✓ Success{RESET}")
+            else:
+                print(f"{MAGENTA}✗ Failed to snap window{RESET}")
+
+    print(f"\n{GREEN}All windows processed!{RESET}")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print(f"\n{MAGENTA}Interrupted{RESET}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"{MAGENTA}Error: {e}{RESET}", file=sys.stderr)
+        sys.exit(1)
