@@ -54,7 +54,10 @@ KEYBINDINGS = {
 
     "ThinkPad Tools": [
         ("Super+` (grave)", "Cyberpunk Dashboard"),
-        ("Super+B", "Battery Status"),
+        ("Super+M", "System Monitor (btop++)"),
+        ("Super+N", "Network Monitor (ICE)"),
+        ("Super+Shift+M", "Process Visualizer"),
+        ("Super+Ctrl+B", "Battery Status"),
         ("Super+T", "Thermal Monitor"),
         ("Super+P", "Power Profiles"),
         ("Super+Shift+P", "Quick Power Switcher"),
@@ -108,9 +111,51 @@ def show_terminal():
         print()
 
 
+def get_cyber_tools_path() -> Path:
+    """Get the path to cyberpunk tools"""
+    # Check common locations
+    candidates = [
+        Path(__file__).parent,  # Same directory as this script
+        Path.home() / "Projects/thinkpad-cyberpunk/utils/bin",
+        Path.home() / "thinkpad-cyberpunk/utils/bin",
+        Path("/opt/thinkpad-cyberpunk/utils/bin"),
+    ]
+    for path in candidates:
+        if path.exists() and (path / "cyberbar").exists():
+            return path
+    return Path(__file__).parent
+
+
+# Direct command mappings for tools (bypass xdotool)
+DIRECT_COMMANDS = {
+    "Network Monitor (ICE)": ("kitty", "-e", "{cyber_tools}/netwatch"),
+    "Process Visualizer": ("kitty", "-e", "{cyber_tools}/procviz"),
+    "Cyberpunk Dashboard": ("kitty", "-e", "{cyber_tools}/cyberdash"),
+    "Thermal Monitor": ("kitty", "-e", "{cyber_tools}/thermctl", "watch"),
+    "Battery Status": ("kitty", "--hold", "{cyber_tools}/batctl", "status"),
+    "Power Profiles": ("kitty", "--hold", "{cyber_tools}/powerctl", "status"),
+    "Workspace Config": ("kitty", "-e", "{cyber_tools}/workspaceconfig"),
+}
+
+
 def execute_keybinding(key_combo: str):
-    """Execute a keybinding using xdotool"""
+    """Execute a keybinding using xdotool or direct command"""
     import time
+
+    # Skip category headers and special entries
+    if "═══" in key_combo or not key_combo.strip():
+        return
+
+    # Check for direct command execution first
+    for desc, cmd_template in DIRECT_COMMANDS.items():
+        if desc in key_combo:
+            cyber_tools = str(get_cyber_tools_path())
+            cmd = [arg.format(cyber_tools=cyber_tools) for arg in cmd_template]
+            try:
+                subprocess.Popen(cmd, start_new_session=True)
+            except Exception as e:
+                print(f"Failed to launch {desc}: {e}", file=sys.stderr)
+            return
 
     # Check if xdotool is available
     if not check_command("xdotool"):

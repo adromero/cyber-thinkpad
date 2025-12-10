@@ -1,0 +1,492 @@
+#!/usr/bin/env python3
+"""
+procviz - Process Visualizer
+Tessier-Ashpool Cyberdeck Suite
+
+Visualizes running processes as data flows through the system.
+Inspired by the data constructs of Neuromancer.
+"""
+
+import sys
+import os
+import time
+import argparse
+import subprocess
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+from collections import defaultdict
+
+# Add lib path
+sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
+
+from colors import Colors
+
+# Refresh interval
+DEFAULT_INTERVAL = 2.0
+
+# Resource thresholds
+CPU_HIGH = 50.0
+CPU_MEDIUM = 20.0
+MEM_HIGH = 10.0
+MEM_MEDIUM = 5.0
+
+
+@dataclass
+class ProcessInfo:
+    """Process information"""
+    pid: int
+    ppid: int
+    name: str
+    state: str
+    cpu_percent: float
+    mem_percent: float
+    threads: int
+    user: str
+    cmdline: str
+    io_read: int = 0
+    io_write: int = 0
+
+
+class ProcessVisualizer:
+    """Process visualization system"""
+
+    def __init__(self):
+        self.prev_cpu_times: Dict[int, Tuple[float, float]] = {}
+        self.prev_time: float = 0
+        self.total_cpu_time: float = 0
+
+    def get_processes(self, limit: int = 20) -> List[ProcessInfo]:
+        """Get process information from /proc"""
+        processes = []
+
+        try:
+            # Get total CPU time for percentage calculation
+            with open("/proc/stat", "r") as f:
+                cpu_line = f.readline()
+                cpu_times = list(map(int, cpu_line.split()[1:]))
+                self.total_cpu_time = sum(cpu_times)
+        except (FileNotFoundError, PermissionError):
+            self.total_cpu_time = 1
+
+        # Get memory total for percentage
+        mem_total = 1
+        try:
+            with open("/proc/meminfo", "r") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        mem_total = int(line.split()[1])
+                        break
+        except (FileNotFoundError, PermissionError):
+            pass
+
+        # Iterate through /proc for process info
+        proc_path = Path("/proc")
+        for entry in proc_path.iterdir():
+            if not entry.name.isdigit():
+                continue
+
+            pid = int(entry.name)
+
+            try:
+                proc_info = self._read_process(entry, pid, mem_total)
+                if proc_info:
+                    processes.append(proc_info)
+            except (FileNotFoundError, PermissionError, ProcessLookupError):
+                continue
+
+        # Sort by CPU usage and return top N
+        processes.sort(key=lambda p: p.cpu_percent, reverse=True)
+        return processes[:limit]
+
+    def _read_process(self, proc_path: Path, pid: int, mem_total: int) -> Optional[ProcessInfo]:
+        """Read process information from /proc/[pid]"""
+        # Read stat file
+        stat_path = proc_path / "stat"
+        stat_content = stat_path.read_text()
+
+        # Parse stat - handle process names with spaces/parentheses
+        # Format: pid (comm) state ppid ...
+        first_paren = stat_content.index("(")
+        last_paren = stat_content.rindex(")")
+
+        name = stat_content[first_paren + 1:last_paren]
+        stat_fields = stat_content[last_paren + 2:].split()
+
+        state = stat_fields[0]
+        ppid = int(stat_fields[1])
+        utime = int(stat_fields[11])
+        stime = int(stat_fields[12])
+        threads = int(stat_fields[17])
+
+        # Calculate CPU percentage
+        current_time = time.time()
+        total_time = utime + stime
+        cpu_percent = 0.0
+
+        if pid in self.prev_cpu_times and self.prev_time > 0:
+            prev_total, prev_sys_time = self.prev_cpu_times[pid]
+            time_delta = current_time - prev_sys_time
+            if time_delta > 0:
+                cpu_delta = total_time - prev_total
+                # Approximate: CPU ticks to percentage
+                cpu_percent = (cpu_delta / (time_delta * os.cpu_count() * 100)) * 100
+
+        self.prev_cpu_times[pid] = (total_time, current_time)
+
+        # Read memory from statm
+        try:
+            statm_path = proc_path / "statm"
+            statm_content = statm_path.read_text().split()
+            rss_pages = int(statm_content[1])
+            # Convert pages to KB (typically 4KB pages)
+            rss_kb = rss_pages * 4
+            mem_percent = (rss_kb / mem_total) * 100
+        except (FileNotFoundError, PermissionError, IndexError):
+            mem_percent = 0.0
+
+        # Get user
+        try:
+            uid = proc_path.stat().st_uid
+            import pwd
+            user = pwd.getpwuid(uid).pw_name
+        except (KeyError, ImportError):
+            user = str(uid) if 'uid' in dir() else "?"
+
+        # Get command line
+        try:
+            cmdline_path = proc_path / "cmdline"
+            cmdline = cmdline_path.read_text().replace("\x00", " ").strip()
+            if not cmdline:
+                cmdline = f"[{name}]"
+        except (FileNotFoundError, PermissionError):
+            cmdline = f"[{name}]"
+
+        # Truncate command line
+        if len(cmdline) > 50:
+            cmdline = cmdline[:47] + "..."
+
+        # Get IO stats if available
+        io_read = 0
+        io_write = 0
+        try:
+            io_path = proc_path / "io"
+            io_content = io_path.read_text()
+            for line in io_content.split("\n"):
+                if line.startswith("read_bytes:"):
+                    io_read = int(line.split()[1])
+                elif line.startswith("write_bytes:"):
+                    io_write = int(line.split()[1])
+        except (FileNotFoundError, PermissionError):
+            pass
+
+        return ProcessInfo(
+            pid=pid,
+            ppid=ppid,
+            name=name[:15],
+            state=state,
+            cpu_percent=cpu_percent,
+            mem_percent=mem_percent,
+            threads=threads,
+            user=user[:8],
+            cmdline=cmdline,
+            io_read=io_read,
+            io_write=io_write
+        )
+
+    def get_process_tree(self, processes: List[ProcessInfo]) -> Dict[int, List[ProcessInfo]]:
+        """Build process tree structure"""
+        tree = defaultdict(list)
+        for proc in processes:
+            tree[proc.ppid].append(proc)
+        return tree
+
+    def get_system_stats(self) -> Dict[str, float]:
+        """Get overall system statistics"""
+        stats = {}
+
+        # Load average
+        try:
+            stats["load_1"], stats["load_5"], stats["load_15"] = os.getloadavg()
+        except OSError:
+            stats["load_1"] = stats["load_5"] = stats["load_15"] = 0.0
+
+        # Memory usage
+        try:
+            with open("/proc/meminfo", "r") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        meminfo[parts[0].rstrip(":")] = int(parts[1])
+
+                total = meminfo.get("MemTotal", 1)
+                available = meminfo.get("MemAvailable", 0)
+                stats["mem_percent"] = ((total - available) / total) * 100
+        except (FileNotFoundError, PermissionError):
+            stats["mem_percent"] = 0.0
+
+        # Process count
+        try:
+            stats["process_count"] = len([p for p in Path("/proc").iterdir() if p.name.isdigit()])
+        except (FileNotFoundError, PermissionError):
+            stats["process_count"] = 0
+
+        return stats
+
+
+def get_state_symbol(state: str) -> Tuple[str, str]:
+    """Get symbol and color for process state"""
+    states = {
+        "R": ("▶", Colors.GREEN),   # Running
+        "S": ("●", Colors.CYAN),    # Sleeping
+        "D": ("◆", Colors.YELLOW),  # Disk sleep
+        "Z": ("✗", Colors.RED),     # Zombie
+        "T": ("■", Colors.MAGENTA), # Stopped
+        "I": ("○", Colors.DIM),     # Idle
+    }
+    return states.get(state, ("?", Colors.DIM))
+
+
+def get_activity_bar(cpu: float, mem: float, width: int = 20) -> str:
+    """Generate activity visualization bar"""
+    # Combined CPU/memory bar
+    cpu_fill = int((cpu / 100) * width)
+    mem_fill = int((mem / 100) * width)
+
+    bar = ""
+    for i in range(width):
+        if i < cpu_fill and i < mem_fill:
+            bar += f"{Colors.MAGENTA}█{Colors.RESET}"
+        elif i < cpu_fill:
+            bar += f"{Colors.GREEN}▓{Colors.RESET}"
+        elif i < mem_fill:
+            bar += f"{Colors.CYAN}▒{Colors.RESET}"
+        else:
+            bar += f"{Colors.DIM}░{Colors.RESET}"
+
+    return bar
+
+
+def format_bytes(b: int) -> str:
+    """Format bytes to human-readable"""
+    if b >= 1_000_000_000:
+        return f"{b/1_000_000_000:.1f}G"
+    elif b >= 1_000_000:
+        return f"{b/1_000_000:.1f}M"
+    elif b >= 1_000:
+        return f"{b/1_000:.1f}K"
+    else:
+        return f"{b}B"
+
+
+def display_visualization(viz: ProcessVisualizer, limit: int = 15, clear: bool = True):
+    """Display process visualization"""
+    if clear:
+        print("\033[2J\033[H", end="")
+
+    processes = viz.get_processes(limit)
+    sys_stats = viz.get_system_stats()
+
+    # Header
+    print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════╗{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.BOLD}T-A PROCVIZ{Colors.RESET} // {Colors.DIM}PROCESS CONSTRUCT VISUALIZATION{Colors.RESET}                 {Colors.CYAN}║{Colors.RESET}")
+    print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════╣{Colors.RESET}")
+
+    # System overview
+    load_color = Colors.RED if sys_stats["load_1"] > os.cpu_count() else Colors.GREEN
+    mem_color = Colors.RED if sys_stats["mem_percent"] > 80 else Colors.GREEN
+
+    print(f"{Colors.CYAN}║{Colors.RESET}  LOAD: {load_color}{sys_stats['load_1']:.2f}{Colors.RESET} {sys_stats['load_5']:.2f} {sys_stats['load_15']:.2f}  "
+          f"MEM: {mem_color}{sys_stats['mem_percent']:.1f}%{Colors.RESET}  "
+          f"PROCS: {Colors.CYAN}{int(sys_stats['process_count'])}{Colors.RESET}")
+
+    print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════╣{Colors.RESET}")
+
+    # Legend
+    print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.GREEN}▓{Colors.RESET}=CPU  {Colors.CYAN}▒{Colors.RESET}=MEM  {Colors.MAGENTA}█{Colors.RESET}=BOTH  "
+          f"{Colors.GREEN}▶{Colors.RESET}=RUN {Colors.CYAN}●{Colors.RESET}=SLEEP {Colors.YELLOW}◆{Colors.RESET}=WAIT {Colors.RED}✗{Colors.RESET}=ZOMBIE")
+
+    print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════╣{Colors.RESET}")
+
+    # Process header
+    print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.DIM}ST  PID   CPU%  MEM%  THR  USER     ACTIVITY             NAME{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.DIM}─────────────────────────────────────────────────────────────────{Colors.RESET}")
+
+    # Process list
+    for proc in processes:
+        state_sym, state_color = get_state_symbol(proc.state)
+
+        # Color CPU/MEM based on usage
+        cpu_color = Colors.RED if proc.cpu_percent > CPU_HIGH else (
+            Colors.YELLOW if proc.cpu_percent > CPU_MEDIUM else Colors.GREEN)
+
+        mem_color = Colors.RED if proc.mem_percent > MEM_HIGH else (
+            Colors.YELLOW if proc.mem_percent > MEM_MEDIUM else Colors.GREEN)
+
+        activity_bar = get_activity_bar(proc.cpu_percent, proc.mem_percent, 16)
+
+        print(f"{Colors.CYAN}║{Colors.RESET}  {state_color}{state_sym}{Colors.RESET} "
+              f"{proc.pid:5} "
+              f"{cpu_color}{proc.cpu_percent:5.1f}{Colors.RESET} "
+              f"{mem_color}{proc.mem_percent:5.1f}{Colors.RESET} "
+              f"{proc.threads:4} "
+              f"{Colors.DIM}{proc.user:8}{Colors.RESET} "
+              f"{activity_bar} "
+              f"{Colors.BOLD}{proc.name}{Colors.RESET}")
+
+    print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════╣{Colors.RESET}")
+
+    # Data flow visualization
+    print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.BOLD}DATA FLOW:{Colors.RESET}")
+
+    # Show top I/O processes
+    io_procs = sorted(processes, key=lambda p: p.io_read + p.io_write, reverse=True)[:5]
+    for proc in io_procs:
+        if proc.io_read == 0 and proc.io_write == 0:
+            continue
+        read_str = format_bytes(proc.io_read)
+        write_str = format_bytes(proc.io_write)
+        print(f"{Colors.CYAN}║{Colors.RESET}    {Colors.GREEN}▼{read_str:>7}{Colors.RESET} "
+              f"{Colors.MAGENTA}▲{write_str:>7}{Colors.RESET} "
+              f"◀─── {Colors.DIM}{proc.name}{Colors.RESET}")
+
+    print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════╝{Colors.RESET}")
+    print(f"{Colors.DIM}Press Ctrl+C to disconnect{Colors.RESET}")
+
+
+def display_tree(viz: ProcessVisualizer, limit: int = 30, clear: bool = True):
+    """Display process tree visualization"""
+    if clear:
+        print("\033[2J\033[H", end="")
+
+    processes = viz.get_processes(limit)
+    tree = viz.get_process_tree(processes)
+
+    print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════╗{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.BOLD}T-A PROCVIZ{Colors.RESET} // {Colors.DIM}PROCESS TREE CONSTRUCT{Colors.RESET}                         {Colors.CYAN}║{Colors.RESET}")
+    print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════╣{Colors.RESET}")
+
+    def print_tree(ppid: int, prefix: str = "", is_last: bool = True):
+        children = tree.get(ppid, [])
+        for i, proc in enumerate(children):
+            is_last_child = (i == len(children) - 1)
+            connector = "└── " if is_last_child else "├── "
+
+            state_sym, state_color = get_state_symbol(proc.state)
+            cpu_color = Colors.RED if proc.cpu_percent > CPU_HIGH else Colors.GREEN
+
+            print(f"{Colors.CYAN}║{Colors.RESET}  {prefix}{connector}"
+                  f"{state_color}{state_sym}{Colors.RESET} "
+                  f"{Colors.BOLD}{proc.name}{Colors.RESET} "
+                  f"{Colors.DIM}[{proc.pid}]{Colors.RESET} "
+                  f"{cpu_color}{proc.cpu_percent:.1f}%{Colors.RESET}")
+
+            # Recurse for children
+            new_prefix = prefix + ("    " if is_last_child else "│   ")
+            print_tree(proc.pid, new_prefix, is_last_child)
+
+    # Start from init/systemd (PID 1) or show orphaned processes
+    print_tree(1)
+
+    # Show processes without parents in our list
+    shown_pids = {1}
+    for proc in processes:
+        shown_pids.add(proc.pid)
+
+    orphans = [p for p in processes if p.ppid not in shown_pids and p.pid != 1]
+    if orphans:
+        print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.DIM}--- orphaned processes ---{Colors.RESET}")
+        for proc in orphans[:10]:
+            state_sym, state_color = get_state_symbol(proc.state)
+            print(f"{Colors.CYAN}║{Colors.RESET}    {state_color}{state_sym}{Colors.RESET} "
+                  f"{Colors.BOLD}{proc.name}{Colors.RESET} "
+                  f"{Colors.DIM}[{proc.pid}]{Colors.RESET}")
+
+    print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════╝{Colors.RESET}")
+    print(f"{Colors.DIM}Press Ctrl+C to disconnect{Colors.RESET}")
+
+
+def display_compact(viz: ProcessVisualizer):
+    """Display compact one-line status"""
+    processes = viz.get_processes(5)
+    sys_stats = viz.get_system_stats()
+
+    # Top CPU process
+    top_proc = processes[0] if processes else None
+    top_str = f"{top_proc.name}:{top_proc.cpu_percent:.0f}%" if top_proc else "idle"
+
+    print(f"LOAD:{sys_stats['load_1']:.1f} MEM:{sys_stats['mem_percent']:.0f}% "
+          f"TOP:{top_str}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Process visualizer - see data flow through the system"
+    )
+
+    parser.add_argument(
+        "-i", "--interval",
+        type=float,
+        default=DEFAULT_INTERVAL,
+        help=f"Refresh interval in seconds (default: {DEFAULT_INTERVAL})"
+    )
+
+    parser.add_argument(
+        "-n", "--limit",
+        type=int,
+        default=15,
+        help="Number of processes to show (default: 15)"
+    )
+
+    parser.add_argument(
+        "-t", "--tree",
+        action="store_true",
+        help="Show process tree view"
+    )
+
+    parser.add_argument(
+        "-c", "--compact",
+        action="store_true",
+        help="Compact one-line output (for status bars)"
+    )
+
+    parser.add_argument(
+        "-1", "--once",
+        action="store_true",
+        help="Run once and exit"
+    )
+
+    args = parser.parse_args()
+
+    viz = ProcessVisualizer()
+
+    try:
+        if args.once:
+            if args.compact:
+                display_compact(viz)
+            elif args.tree:
+                display_tree(viz, args.limit, clear=False)
+            else:
+                display_visualization(viz, args.limit, clear=False)
+        else:
+            # Initial reading to establish baseline
+            viz.get_processes(args.limit)
+            time.sleep(0.5)
+
+            while True:
+                if args.compact:
+                    display_compact(viz)
+                elif args.tree:
+                    display_tree(viz, args.limit)
+                else:
+                    display_visualization(viz, args.limit)
+                time.sleep(args.interval)
+
+    except KeyboardInterrupt:
+        print(f"\n{Colors.CYAN}Visualization terminated.{Colors.RESET}")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

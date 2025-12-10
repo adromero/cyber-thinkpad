@@ -1,0 +1,517 @@
+#!/usr/bin/env python3
+"""
+netwatch - Network Traffic Monitor with Firewall Status
+Tessier-Ashpool Cyberdeck Suite
+
+Displays real-time network activity with ICE (firewall) status visualization.
+"""
+
+import sys
+import time
+import argparse
+import subprocess
+import re
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
+# Add lib path
+sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
+
+from colors import Colors
+
+# Refresh interval
+DEFAULT_INTERVAL = 1.0
+
+# Traffic thresholds (bytes/sec)
+TRAFFIC_HIGH = 1_000_000      # 1 MB/s
+TRAFFIC_MEDIUM = 100_000      # 100 KB/s
+TRAFFIC_LOW = 10_000          # 10 KB/s
+
+
+@dataclass
+class InterfaceStats:
+    """Network interface statistics"""
+    name: str
+    rx_bytes: int
+    tx_bytes: int
+    rx_packets: int
+    tx_packets: int
+    state: str
+    ip_addr: Optional[str] = None
+
+
+@dataclass
+class FirewallStatus:
+    """Firewall (ICE) status"""
+    active: bool
+    backend: str  # iptables, nftables, ufw
+    input_policy: str
+    output_policy: str
+    forward_policy: str
+    rules_count: int
+
+
+class NetWatch:
+    """Network monitoring system"""
+
+    def __init__(self):
+        self.prev_stats: Dict[str, InterfaceStats] = {}
+        self.prev_time: float = 0
+
+    def get_interface_stats(self) -> Dict[str, InterfaceStats]:
+        """Read network interface statistics from /proc/net/dev"""
+        stats = {}
+
+        try:
+            with open("/proc/net/dev", "r") as f:
+                lines = f.readlines()[2:]  # Skip header lines
+
+            for line in lines:
+                parts = line.split()
+                if len(parts) < 17:
+                    continue
+
+                name = parts[0].rstrip(":")
+                if name == "lo":  # Skip loopback
+                    continue
+
+                stats[name] = InterfaceStats(
+                    name=name,
+                    rx_bytes=int(parts[1]),
+                    tx_bytes=int(parts[9]),
+                    rx_packets=int(parts[2]),
+                    tx_packets=int(parts[10]),
+                    state=self._get_interface_state(name),
+                    ip_addr=self._get_interface_ip(name)
+                )
+        except (FileNotFoundError, PermissionError):
+            pass
+
+        return stats
+
+    def _get_interface_state(self, iface: str) -> str:
+        """Get interface operational state"""
+        try:
+            state_path = Path(f"/sys/class/net/{iface}/operstate")
+            return state_path.read_text().strip()
+        except (FileNotFoundError, PermissionError):
+            return "unknown"
+
+    def _get_interface_ip(self, iface: str) -> Optional[str]:
+        """Get interface IP address"""
+        try:
+            result = subprocess.run(
+                ["ip", "-4", "addr", "show", iface],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', result.stdout)
+                if match:
+                    return match.group(1)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        return None
+
+    def calculate_rates(self, current: Dict[str, InterfaceStats]) -> Dict[str, Tuple[float, float]]:
+        """Calculate bytes/sec for each interface"""
+        rates = {}
+        current_time = time.time()
+
+        if self.prev_time == 0:
+            self.prev_stats = current
+            self.prev_time = current_time
+            return {name: (0.0, 0.0) for name in current}
+
+        elapsed = current_time - self.prev_time
+        if elapsed <= 0:
+            return {name: (0.0, 0.0) for name in current}
+
+        for name, stats in current.items():
+            if name in self.prev_stats:
+                prev = self.prev_stats[name]
+                rx_rate = (stats.rx_bytes - prev.rx_bytes) / elapsed
+                tx_rate = (stats.tx_bytes - prev.tx_bytes) / elapsed
+                rates[name] = (max(0, rx_rate), max(0, tx_rate))
+            else:
+                rates[name] = (0.0, 0.0)
+
+        self.prev_stats = current
+        self.prev_time = current_time
+        return rates
+
+    def get_firewall_status(self) -> FirewallStatus:
+        """Detect and query firewall status"""
+        # Try ufw first (common on Ubuntu/Mint)
+        status = self._check_ufw()
+        if status:
+            return status
+
+        # Try nftables
+        status = self._check_nftables()
+        if status:
+            return status
+
+        # Fall back to iptables
+        return self._check_iptables()
+
+    def _check_ufw(self) -> Optional[FirewallStatus]:
+        """Check UFW status"""
+        try:
+            result = subprocess.run(
+                ["ufw", "status", "verbose"],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode != 0:
+                return None
+
+            output = result.stdout
+            active = "Status: active" in output
+
+            # Parse default policies
+            input_policy = "ALLOW"
+            output_policy = "ALLOW"
+            forward_policy = "DENY"
+
+            for line in output.split("\n"):
+                if line.startswith("Default:"):
+                    if "deny (incoming)" in line:
+                        input_policy = "DENY"
+                    if "deny (outgoing)" in line:
+                        output_policy = "DENY"
+
+            # Count rules
+            rules_count = len([l for l in output.split("\n") if l.strip() and
+                              not l.startswith("Status") and
+                              not l.startswith("Default") and
+                              not l.startswith("Logging") and
+                              not l.startswith("To") and
+                              not l.startswith("--")])
+
+            return FirewallStatus(
+                active=active,
+                backend="ufw",
+                input_policy=input_policy,
+                output_policy=output_policy,
+                forward_policy=forward_policy,
+                rules_count=rules_count
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return None
+
+    def _check_nftables(self) -> Optional[FirewallStatus]:
+        """Check nftables status"""
+        try:
+            result = subprocess.run(
+                ["nft", "list", "ruleset"],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode != 0:
+                return None
+
+            output = result.stdout
+            rules_count = output.count("rule ")
+            active = len(output.strip()) > 0
+
+            return FirewallStatus(
+                active=active,
+                backend="nftables",
+                input_policy="ACCEPT",  # nftables uses chain policies
+                output_policy="ACCEPT",
+                forward_policy="ACCEPT",
+                rules_count=rules_count
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError):
+            return None
+
+    def _check_iptables(self) -> FirewallStatus:
+        """Check iptables status (fallback)"""
+        try:
+            result = subprocess.run(
+                ["iptables", "-L", "-n"],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+
+            output = result.stdout if result.returncode == 0 else ""
+
+            # Parse chain policies
+            input_policy = "ACCEPT"
+            output_policy = "ACCEPT"
+            forward_policy = "ACCEPT"
+
+            for line in output.split("\n"):
+                if line.startswith("Chain INPUT"):
+                    match = re.search(r'\(policy (\w+)\)', line)
+                    if match:
+                        input_policy = match.group(1)
+                elif line.startswith("Chain OUTPUT"):
+                    match = re.search(r'\(policy (\w+)\)', line)
+                    if match:
+                        output_policy = match.group(1)
+                elif line.startswith("Chain FORWARD"):
+                    match = re.search(r'\(policy (\w+)\)', line)
+                    if match:
+                        forward_policy = match.group(1)
+
+            # Count rules (lines that aren't chain headers or column headers)
+            rules_count = len([l for l in output.split("\n")
+                              if l.strip() and
+                              not l.startswith("Chain") and
+                              not l.startswith("target")])
+
+            active = rules_count > 0 or input_policy != "ACCEPT"
+
+            return FirewallStatus(
+                active=active,
+                backend="iptables",
+                input_policy=input_policy,
+                output_policy=output_policy,
+                forward_policy=forward_policy,
+                rules_count=rules_count
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError):
+            return FirewallStatus(
+                active=False,
+                backend="unknown",
+                input_policy="UNKNOWN",
+                output_policy="UNKNOWN",
+                forward_policy="UNKNOWN",
+                rules_count=0
+            )
+
+    def get_connections_count(self) -> Tuple[int, int]:
+        """Get established and listening connection counts"""
+        established = 0
+        listening = 0
+
+        try:
+            with open("/proc/net/tcp", "r") as f:
+                lines = f.readlines()[1:]  # Skip header
+                for line in lines:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        state = parts[3]
+                        if state == "01":  # ESTABLISHED
+                            established += 1
+                        elif state == "0A":  # LISTEN
+                            listening += 1
+
+            with open("/proc/net/tcp6", "r") as f:
+                lines = f.readlines()[1:]
+                for line in lines:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        state = parts[3]
+                        if state == "01":
+                            established += 1
+                        elif state == "0A":
+                            listening += 1
+        except (FileNotFoundError, PermissionError):
+            pass
+
+        return established, listening
+
+
+def format_bytes(b: float) -> str:
+    """Format bytes to human-readable string"""
+    if b >= 1_000_000_000:
+        return f"{b/1_000_000_000:.1f} GB"
+    elif b >= 1_000_000:
+        return f"{b/1_000_000:.1f} MB"
+    elif b >= 1_000:
+        return f"{b/1_000:.1f} KB"
+    else:
+        return f"{b:.0f} B"
+
+
+def format_rate(rate: float) -> str:
+    """Format bytes/sec to human-readable string"""
+    return format_bytes(rate) + "/s"
+
+
+def get_rate_bar(rate: float, width: int = 20) -> str:
+    """Generate ASCII progress bar for rate"""
+    if rate >= TRAFFIC_HIGH:
+        fill = width
+        color = Colors.RED
+    elif rate >= TRAFFIC_MEDIUM:
+        fill = int(width * 0.7)
+        color = Colors.YELLOW
+    elif rate >= TRAFFIC_LOW:
+        fill = int(width * 0.4)
+        color = Colors.GREEN
+    elif rate > 0:
+        fill = int(width * 0.1)
+        color = Colors.CYAN
+    else:
+        fill = 0
+        color = Colors.DIM
+
+    bar = "█" * fill + "░" * (width - fill)
+    return f"{color}{bar}{Colors.RESET}"
+
+
+def get_ice_rating(fw: FirewallStatus) -> Tuple[str, str]:
+    """Get ICE rating based on firewall status"""
+    if not fw.active:
+        return "NONE", Colors.RED
+
+    # Score based on policies and rules
+    score = 0
+    if fw.input_policy in ["DROP", "DENY"]:
+        score += 2
+    if fw.output_policy in ["DROP", "DENY"]:
+        score += 1
+    if fw.forward_policy in ["DROP", "DENY"]:
+        score += 1
+    if fw.rules_count > 10:
+        score += 2
+    elif fw.rules_count > 5:
+        score += 1
+
+    if score >= 5:
+        return "BLACK", Colors.PURPLE
+    elif score >= 3:
+        return "HARD", Colors.CYAN
+    elif score >= 2:
+        return "MODERATE", Colors.GREEN
+    else:
+        return "SOFT", Colors.YELLOW
+
+
+def display_status(watch: NetWatch, clear: bool = True):
+    """Display network status"""
+    if clear:
+        print("\033[2J\033[H", end="")  # Clear screen
+
+    stats = watch.get_interface_stats()
+    rates = watch.calculate_rates(stats)
+    fw = watch.get_firewall_status()
+    established, listening = watch.get_connections_count()
+    ice_rating, ice_color = get_ice_rating(fw)
+
+    # Header
+    print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════╗{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.BOLD}T-A NETWATCH{Colors.RESET} // {Colors.DIM}NETWORK SURVEILLANCE ACTIVE{Colors.RESET}              {Colors.CYAN}║{Colors.RESET}")
+    print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════╣{Colors.RESET}")
+
+    # ICE Status
+    print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.BOLD}ICE STATUS:{Colors.RESET}  {ice_color}{ice_rating}{Colors.RESET} ({fw.backend})")
+    print(f"{Colors.CYAN}║{Colors.RESET}  ──────────────────────────────────────────────────────────  {Colors.CYAN}║{Colors.RESET}")
+
+    policy_color = Colors.GREEN if fw.input_policy in ["DROP", "DENY"] else Colors.YELLOW
+    print(f"{Colors.CYAN}║{Colors.RESET}    INPUT:   {policy_color}{fw.input_policy:8}{Colors.RESET}  RULES: {fw.rules_count}")
+
+    policy_color = Colors.GREEN if fw.output_policy in ["DROP", "DENY"] else Colors.YELLOW
+    print(f"{Colors.CYAN}║{Colors.RESET}    OUTPUT:  {policy_color}{fw.output_policy:8}{Colors.RESET}")
+
+    policy_color = Colors.GREEN if fw.forward_policy in ["DROP", "DENY"] else Colors.YELLOW
+    print(f"{Colors.CYAN}║{Colors.RESET}    FORWARD: {policy_color}{fw.forward_policy:8}{Colors.RESET}")
+
+    print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════╣{Colors.RESET}")
+
+    # Connection counts
+    print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.BOLD}CONNECTIONS:{Colors.RESET}  {Colors.GREEN}{established}{Colors.RESET} established  {Colors.CYAN}{listening}{Colors.RESET} listening")
+    print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════╣{Colors.RESET}")
+
+    # Interface stats
+    print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.BOLD}INTERFACE TRAFFIC:{Colors.RESET}")
+    print(f"{Colors.CYAN}║{Colors.RESET}  ──────────────────────────────────────────────────────────")
+
+    for name, iface_stats in sorted(stats.items()):
+        rx_rate, tx_rate = rates.get(name, (0, 0))
+        state_color = Colors.GREEN if iface_stats.state == "up" else Colors.RED
+
+        # Interface header
+        ip_str = f" ({iface_stats.ip_addr})" if iface_stats.ip_addr else ""
+        print(f"{Colors.CYAN}║{Colors.RESET}    {Colors.BOLD}{name:12}{Colors.RESET} {state_color}●{Colors.RESET}{ip_str}")
+
+        # RX (download)
+        rx_bar = get_rate_bar(rx_rate, 15)
+        print(f"{Colors.CYAN}║{Colors.RESET}      {Colors.GREEN}▼ RX{Colors.RESET} {rx_bar} {format_rate(rx_rate):>12}")
+
+        # TX (upload)
+        tx_bar = get_rate_bar(tx_rate, 15)
+        print(f"{Colors.CYAN}║{Colors.RESET}      {Colors.MAGENTA}▲ TX{Colors.RESET} {tx_bar} {format_rate(tx_rate):>12}")
+
+        # Totals
+        print(f"{Colors.CYAN}║{Colors.RESET}      {Colors.DIM}Total: ▼{format_bytes(iface_stats.rx_bytes)} ▲{format_bytes(iface_stats.tx_bytes)}{Colors.RESET}")
+
+    print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════╝{Colors.RESET}")
+    print(f"{Colors.DIM}Press Ctrl+C to disconnect{Colors.RESET}")
+
+
+def display_compact(watch: NetWatch):
+    """Display compact one-line status"""
+    stats = watch.get_interface_stats()
+    rates = watch.calculate_rates(stats)
+    fw = watch.get_firewall_status()
+    ice_rating, ice_color = get_ice_rating(fw)
+
+    # Sum all interface rates
+    total_rx = sum(r[0] for r in rates.values())
+    total_tx = sum(r[1] for r in rates.values())
+
+    print(f"ICE:{ice_color}{ice_rating}{Colors.RESET} "
+          f"▼{format_rate(total_rx)} ▲{format_rate(total_tx)}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Network traffic monitor with firewall status"
+    )
+
+    parser.add_argument(
+        "-i", "--interval",
+        type=float,
+        default=DEFAULT_INTERVAL,
+        help=f"Refresh interval in seconds (default: {DEFAULT_INTERVAL})"
+    )
+
+    parser.add_argument(
+        "-c", "--compact",
+        action="store_true",
+        help="Compact one-line output (for status bars)"
+    )
+
+    parser.add_argument(
+        "-1", "--once",
+        action="store_true",
+        help="Run once and exit"
+    )
+
+    args = parser.parse_args()
+
+    watch = NetWatch()
+
+    try:
+        if args.once:
+            if args.compact:
+                # Need two readings to calculate rate
+                watch.get_interface_stats()
+                time.sleep(0.5)
+                display_compact(watch)
+            else:
+                display_status(watch, clear=False)
+        else:
+            while True:
+                if args.compact:
+                    display_compact(watch)
+                else:
+                    display_status(watch)
+                time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print(f"\n{Colors.CYAN}Connection terminated.{Colors.RESET}")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

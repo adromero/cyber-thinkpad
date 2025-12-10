@@ -213,6 +213,12 @@ bindsym $mod+t exec kitty -e $cyber_tools/thermctl watch
 # Power profile switcher
 bindsym $mod+p exec kitty --hold $cyber_tools/powerctl status
 
+# Network monitor (ICE + traffic)
+bindsym $mod+n exec kitty -e $cyber_tools/netwatch
+
+# Process visualizer
+bindsym $mod+Shift+m exec kitty -e $cyber_tools/procviz
+
 # Power profile quick switcher (floating)
 mode "power" {
     bindsym 1 exec --no-startup-id $cyber_tools/powerctl preset max-performance; mode "default"
