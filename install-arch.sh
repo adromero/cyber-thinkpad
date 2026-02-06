@@ -93,6 +93,10 @@ swapon "${DISK}p2"
 # ============================================================
 echo ">>> Installing base system..."
 
+# Ensure pacman keyring is initialized (live USB may not have it ready)
+pacman-key --init
+pacman-key --populate archlinux
+
 pacstrap -K /mnt \
     base \
     base-devel \
