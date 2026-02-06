@@ -226,6 +226,124 @@ def cmd_watch(fan: FanController, args):
         return 0
 
 
+def cmd_interactive(fan: FanController, args):
+    """Interactive fan control mode"""
+    import select
+    import tty
+    import termios
+
+    def get_key():
+        """Get a single keypress"""
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            # Check if input is available (with timeout)
+            if select.select([sys.stdin], [], [], 0.5)[0]:
+                ch = sys.stdin.read(1)
+                return ch
+            return None
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+    def draw_screen():
+        """Draw the interactive screen"""
+        print("\033[2J\033[H", end="")  # Clear screen
+
+        print(f"{Colors.BOLD}{Colors.MAGENTA}╔═══════════════════════════════════╗{Colors.RESET}")
+        print(f"{Colors.BOLD}{Colors.MAGENTA}║  {Colors.CYAN}FAN CONTROL - INTERACTIVE MODE{Colors.MAGENTA}  ║{Colors.RESET}")
+        print(f"{Colors.BOLD}{Colors.MAGENTA}╚═══════════════════════════════════╝{Colors.RESET}\n")
+
+        # Check if control is enabled
+        if not fan.is_control_enabled():
+            print(f"{Colors.YELLOW}⚠ Fan control is DISABLED in kernel module{Colors.RESET}")
+            print(f"{Colors.DIM}Run: sudo modprobe -r thinkpad_acpi && sudo modprobe thinkpad_acpi{Colors.RESET}\n")
+
+        # Current status
+        status = fan.get_status()
+        fan_level = status.get("level", "unknown")
+        fan_speed = status.get("speed", "0")
+
+        try:
+            speed_rpm = int(fan_speed)
+            print(f"{Colors.PURPLE}Current:{Colors.RESET}  {speed_bar(speed_rpm)}")
+        except ValueError:
+            print(f"{Colors.PURPLE}Current:{Colors.RESET}  {Colors.DIM}{fan_speed}{Colors.RESET}")
+
+        level_desc = FAN_LEVELS.get(fan_level, "")
+        print(f"{Colors.PURPLE}Level:{Colors.RESET}    {Colors.CYAN}{fan_level}{Colors.RESET} {Colors.DIM}{level_desc}{Colors.RESET}")
+
+        # Separator
+        print(f"\n{Colors.DIM}{'─' * 40}{Colors.RESET}\n")
+
+        # Controls
+        print(f"{Colors.BOLD}{Colors.CYAN}CONTROLS:{Colors.RESET}")
+        print(f"  {Colors.YELLOW}1-7{Colors.RESET}  Set fan level (1=low, 7=max)")
+        print(f"  {Colors.YELLOW}0{Colors.RESET}    Fan OFF {Colors.RED}(dangerous!){Colors.RESET}")
+        print(f"  {Colors.YELLOW}a{Colors.RESET}    Auto mode {Colors.GREEN}(recommended){Colors.RESET}")
+        print(f"  {Colors.YELLOW}f{Colors.RESET}    Full speed {Colors.RED}(emergency){Colors.RESET}")
+        print(f"  {Colors.YELLOW}q{Colors.RESET}    Quit")
+
+        print(f"\n{Colors.DIM}Press a key to change fan speed...{Colors.RESET}")
+
+    running = True
+    last_set_msg = None
+    msg_time = 0
+
+    try:
+        while running:
+            draw_screen()
+
+            # Show last action message
+            if last_set_msg and (time.time() - msg_time) < 2:
+                print(f"\n{last_set_msg}")
+
+            key = get_key()
+
+            if key is None:
+                continue
+
+            if key in ['q', 'Q', '\x1b']:  # q, Q, or Escape
+                running = False
+                continue
+
+            # Map keys to fan levels
+            level_map = {
+                '0': '0',
+                '1': '1',
+                '2': '2',
+                '3': '3',
+                '4': '4',
+                '5': '5',
+                '6': '6',
+                '7': '7',
+                'a': 'auto',
+                'A': 'auto',
+                'f': 'full-speed',
+                'F': 'full-speed',
+            }
+
+            if key in level_map:
+                level = level_map[key]
+                try:
+                    if fan.set_level(level):
+                        last_set_msg = f"{Colors.GREEN}✓ Set to {level}{Colors.RESET}"
+                    else:
+                        last_set_msg = f"{Colors.RED}✗ Failed (need sudo){Colors.RESET}"
+                except Exception as e:
+                    last_set_msg = f"{Colors.RED}✗ Error: {e}{Colors.RESET}"
+                msg_time = time.time()
+
+    except KeyboardInterrupt:
+        pass
+
+    # Clear screen and show exit message
+    print("\033[2J\033[H", end="")
+    print(f"{Colors.CYAN}Fan control exited{Colors.RESET}")
+
+    return 0
+
+
 def cmd_list(fan: FanController, args):
     """List available fan levels"""
     print_header("AVAILABLE FAN LEVELS")
@@ -526,6 +644,9 @@ temperatures when using manual fan control. Use 'auto' mode for normal use.
     # Status command
     subparsers.add_parser("status", help="Show fan status")
 
+    # Interactive command
+    subparsers.add_parser("interactive", help="Interactive fan control (keyboard shortcuts)")
+
     # Set command
     set_parser = subparsers.add_parser("set", help="Set fan level (requires root)")
     set_parser.add_argument("level", choices=list(FAN_LEVELS.keys()),
@@ -557,6 +678,7 @@ temperatures when using manual fan control. Use 'auto' mode for normal use.
 
         commands = {
             "status": cmd_status,
+            "interactive": cmd_interactive,
             "set": cmd_set,
             "watch": cmd_watch,
             "list": cmd_list,

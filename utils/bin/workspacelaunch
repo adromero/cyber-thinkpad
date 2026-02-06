@@ -188,7 +188,21 @@ class WorkspaceLauncher:
             # Wait for window to appear
             time.sleep(0.5)
 
-            # Apply positioning if specified
+            # Handle floating windows with geometry
+            if app.get("floating"):
+                self.i3_msg("floating enable")
+                if "geometry" in app:
+                    # geometry format: "x,y,width,height"
+                    try:
+                        parts = app["geometry"].split(",")
+                        x, y, w, h = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+                        self.i3_msg(f"resize set {w} {h}")
+                        self.i3_msg(f"move position {x} {y}")
+                    except (ValueError, IndexError) as e:
+                        print(f"  Warning: Invalid geometry format: {app['geometry']}")
+                continue  # Skip tiled positioning for floating windows
+
+            # Apply positioning if specified (for tiled windows)
             if position == "left":
                 self.i3_msg("move left")
             elif position == "right":

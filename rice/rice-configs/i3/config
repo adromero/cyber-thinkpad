@@ -210,14 +210,11 @@ bindsym $mod+Ctrl+b exec kitty --hold $cyber_tools/batctl status
 # Thermal monitoring
 bindsym $mod+t exec kitty -e $cyber_tools/thermctl watch
 
+# Fan control (interactive - press 1-7 for levels, a=auto, f=full, q=quit)
+bindsym $mod+Shift+f exec kitty -e sudo $cyber_tools/fanctl interactive
+
 # Power profile switcher
 bindsym $mod+p exec kitty --hold $cyber_tools/powerctl status
-
-# Network monitor (ICE + traffic)
-bindsym $mod+n exec kitty -e $cyber_tools/netwatch
-
-# Process visualizer
-bindsym $mod+Shift+m exec kitty -e $cyber_tools/procviz
 
 # Power profile quick switcher (floating)
 mode "power" {

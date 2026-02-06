@@ -55,10 +55,9 @@ KEYBINDINGS = {
     "ThinkPad Tools": [
         ("Super+` (grave)", "Cyberpunk Dashboard"),
         ("Super+M", "System Monitor (btop++)"),
-        ("Super+N", "Network Monitor (ICE)"),
-        ("Super+Shift+M", "Process Visualizer"),
         ("Super+Ctrl+B", "Battery Status"),
         ("Super+T", "Thermal Monitor"),
+        ("Super+Shift+F", "Fan Control"),
         ("Super+P", "Power Profiles"),
         ("Super+Shift+P", "Quick Power Switcher"),
         ("Super+Shift+W", "Workspace Config"),
@@ -128,8 +127,6 @@ def get_cyber_tools_path() -> Path:
 
 # Direct command mappings for tools (bypass xdotool)
 DIRECT_COMMANDS = {
-    "Network Monitor (ICE)": ("kitty", "-e", "{cyber_tools}/netwatch"),
-    "Process Visualizer": ("kitty", "-e", "{cyber_tools}/procviz"),
     "Cyberpunk Dashboard": ("kitty", "-e", "{cyber_tools}/cyberdash"),
     "Thermal Monitor": ("kitty", "-e", "{cyber_tools}/thermctl", "watch"),
     "Battery Status": ("kitty", "--hold", "{cyber_tools}/batctl", "status"),
